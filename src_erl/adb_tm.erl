@@ -38,7 +38,7 @@ loop() ->
 	    loop();
 	{From, {dump, SiteId}} ->
 	    loop();
-        {From, {fail, SiteId}} ->
+    {From, {fail, SiteId}} ->
 	    loop();
 	{From, {recover, SiteId}} ->
 	    loop()
