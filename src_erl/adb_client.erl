@@ -96,7 +96,7 @@ dump() ->
     rpc:call(tm@localhost, adb_tm, dump, []).
 
 dump(Tid) ->%this is for dump(1) or dump(x1)
-rpc:call(tm@localhost, adb_tm, dump2, [Tid]).
+rpc:call(tm@localhost, adb_tm, dump, [Tid]).
    
 endT(Tid) ->
     rpc:call(tm@localhost, adb_tm, endT, [Tid]).    
