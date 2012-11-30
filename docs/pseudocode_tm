@@ -6,7 +6,7 @@
 // waitList
 // writeLockTable
 // readLockTable
-
+// accessList
 case: beginT(Tx) 
       	// add T to ageList
       	ageList.add(Tx).
@@ -20,12 +20,44 @@ case: fail(n)
      // make those site una/v
      db:fail(n)
      // kill all transaction that accessed site(n), except RO transaction     
-
+	while(AccessList.sid = n)
+		AccessList.Tid abort()
+     
 case: recover(n)
       // make site n a/v
       db:recover(n)
 
+case: dump()
+case: dump(…)
+case: end(T)
+	perform everything T in waitList
+	commit
+
+case: abort(T)
+	abortList.add(T)
+	ageList.remove(T)
+	waitList.remove(T)
+	writeLock.remove(T)
+	readLock.remove(T)
+	notify transaction
 case: R | W 
+
+        if(Found in abortList) ignore
+	//figure out what index is located in sid
+	AccessList.add(Tid, sid)
+	
+	//check lock first
+        // if the lock is free
+                it's mine! don't touch it any more
+        // if the lock is not free
+                get the holder's age
+                compare with me
+                if i'm younger 
+                    kill me!!
+                    T.abort()
+                else
+                    place me in waitlist
+       
       while (TM:waitList != empty ){	
 	youngest = ageList(last)		
 	for(youngest in waitList)
@@ -33,17 +65,13 @@ case: R | W
       }
 	// kill the youngestT and clean up the list
 	T.abort() 
-	ageList.remove(T)
-	waitList.remove(T)
-	writeLock.remove(T)
-	readLock.remove(T)
+	
 
 	if(db:available() && obtainLockOntheVariable) 
 	// obtain the lock on variable means lock on variable, not site
 	// 2 locks : read | write
 	{
 		perform operation
-
 	}
 	else 
 	// put in the waitList
@@ -51,7 +79,7 @@ case: R | W
 		if(T is younger than workingT || T is younger than one in queue)
 		// any transaction ahead in the waiting queue 
 		// or holding the lock is older, then die.
-			abort(T)
+			abort(T) 
 		else
 			// put in the waitList
 			waitList.add(T and its operation in List)
