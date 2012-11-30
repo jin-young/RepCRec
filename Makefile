@@ -2,7 +2,7 @@ all: clean compile
 
 compile:
 	mkdir -p ./lib; \
-	erlc -o ./lib ./src_erl/*.erl
+	erlc -o ./lib ./src/*.erl
 	
 clean:
 	rm -rf ./lib/*
