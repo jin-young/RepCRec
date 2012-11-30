@@ -1,0 +1,35 @@
+// pseudo code
+// Server
+
+start()
+// create new 10 site 
+// initial lists of available of 10 sites
+// by calculate  SiteOfIndex = ( index + 1 ) % 10
+
+recover(n)
+// make site available
+available(n) = true
+
+fail(n)
+// make site una/v
+available(n) = false
+
+getter(Sid, ValId)
+
+setter(Sid, ValId, Value)
+
+snapshot()
+// return list of snapshot isolation
+// dump() can benefit from this
+
+snapshot(ValId)
+// dump()
+// returns the commit values of variable ValId at all sites
+
+snapshot(Sid)
+// dump(i)
+// returns the committed values of all copies of all variable at site Sid
+
+
+	
+
