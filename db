@@ -1,0 +1,3 @@
+#!/bin/bash
+
+erl -pa ./bin -sname db@localhost -noshell -s adb_db start	
