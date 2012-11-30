@@ -3,9 +3,9 @@
 start(TransId) ->
      register(TransId, spawn(fun() -> loop() end)).
      
-read
-    
-loop(Tm) ->
+loop() ->
     receive
-        {read, {VariableId}} ->
+        {From, {read, VariableId}} ->
+            loop()
+    end.
         
