@@ -1,8 +1,8 @@
 all: clean compile
 
 compile:
-	mkdir -p ./bin; \
-	erlc -o ./bin ./src_erl/*.erl
+	mkdir -p ./lib; \
+	erlc -o ./lib ./src_erl/*.erl
 	
 clean:
-	rm -rf ./bin/*
+	rm -rf ./lib/*

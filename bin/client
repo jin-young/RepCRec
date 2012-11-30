@@ -1,0 +1,3 @@
+#!/bin/bash
+
+erl -pa ../lib -sname tm@localhost -s adb_client start	
