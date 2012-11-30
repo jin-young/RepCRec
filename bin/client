@@ -1,3 +1,5 @@
 #!/bin/bash
 
-erl -pa ../lib -sname tm@localhost -s adb_client start	
+BASEDIR=$(dirname $0)
+
+erl -pa $BASEDIR/../lib -sname client@localhost -s adb_client start $1
