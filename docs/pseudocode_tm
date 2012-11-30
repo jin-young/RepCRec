@@ -2,6 +2,10 @@
 // Transaction Manager (TM)
 
 
+// ageList
+// waitList
+// writeLockTable
+// readLockTable
 
 case: beginT(Tx) 
       // add T to ageList
