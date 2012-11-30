@@ -81,31 +81,31 @@ send_command([H|TL]) ->
     		end.
 			           
 beginT(Tid) ->
-    rpc:call(tm@localhost, adb_tm, beginT, [Tid]).
+	io:format("~s~n",[rpc:call(tm@localhost, adb_tm, beginT, [Tid])]).
    
 beginRO(Tid) ->
-    rpc:call(tm@localhost, adb_tm, beginRO, [Tid]).
+    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, beginRO, [Tid])]).
 
 r(Tid, ValId) ->
-    rpc:call(tm@localhost, adb_tm, read, [Tid, ValId]).
+    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, read, [Tid, ValId])]).
     
 w(Tid, ValId, Value) ->
-    rpc:call(tm@localhost, adb_tm, write, [Tid, ValId, Value]).
+    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, write, [Tid, ValId, Value])]).
 
 dump() ->
-    rpc:call(tm@localhost, adb_tm, dump, []).
+    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, dump, [])]).
 
 dump(Tid) ->%this is for dump(1) or dump(x1)
-rpc:call(tm@localhost, adb_tm, dump, [Tid]).
+	io:format("~s~n",[rpc:call(tm@localhost, adb_tm, dump, [Tid])]).
    
 endT(Tid) ->
-    rpc:call(tm@localhost, adb_tm, endT, [Tid]).    
+    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, endT, [Tid])]).    
 
 fail(SiteId) ->
-    rpc:call(tm@localhost, adb_tm, fail, [SiteId]).
+    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, fail, [SiteId])]).
     
 recover(SiteId) ->
-   rpc:call(tm@localhost, adb_tm, fail, [SiteId]).
+  	io:format("~s~n",[rpc:call(tm@localhost, adb_tm, recover, [SiteId])]).
 
 trydump([]) ->dump();
 trydump([H]) ->dump(H).
