@@ -21,49 +21,49 @@ send_command([H|TL]) ->
             nomatch -> 
                 io:format("~s~n", [Cmd]),
                 case re:run(Cmd, "beginRO(.+)") of
-                    {match,Captures} ->
+                    {match,_} ->
                         [A]=string:tokens(Cmd,"beginRO()"),
                         beginRO(A),
                         send_command(TL);
                     nomatch -> 
                         case re:run(Cmd, "R(.+)") of 
-                            {match, Captures} ->
+                            {match, _} ->
                                 [A|B]=string:tokens(Cmd,"R(,)"),
                                 r(A,B),
                                 send_command(TL);
                             nomatch ->
                                 case re:run(Cmd, "W(.+)") of
-                                    {match, Captures} ->
+                                    {match, _} ->
                                         [A,B,C]=string:tokens(Cmd,"W(,)"),
                                         w(A,B,C),
                                         send_command(TL);
                                     nomatch ->
                                         case re:run(Cmd, "dump()") of
-                                            {match, Captures} ->
+                                            {match, _} ->
                                                 trydump(string:tokens(Cmd,"dump()")),
                                                  %       dump(A),
                                                 send_command(TL);
                                             nomatch ->
                                                 case re:run(Cmd, "end(.+)") of
-                                                    {match, Captures} ->
+                                                    {match, _} ->
                                                         [A]=string:tokens(Cmd,"end()"),
                                                         endT(A),
                                                         send_command(TL);
                                                     nomatch ->
                                                         case re:run(Cmd, "fail(.+)") of
-                                                            {match, Captures} ->
+                                                            {match, _} ->
                                                                 [A]=string:tokens(Cmd,"fail()"),
                                                                 fail(A),
                                                                 send_command(TL);
                                                             nomatch ->
                                                                 case re:run(Cmd, "recover\(.+\)") of
-                                                                    {match, Captures} ->
+                                                                    {match, _} ->
                                                                         [A]=string:tokens(Cmd,"recover()"),
                                                                         recover(A),
                                                                         send_command(TL);
                                                                     nomatch ->
                                                                         case re:run(Cmd, "begin(.+)") of
-                                                                               {match,Captures} ->
+                                                                               {match,_} ->
                                                                                 [A]=string:tokens(Cmd,"begin()"),
                                                                                 beginT(A),
                                                                                 send_command(TL);
@@ -87,10 +87,12 @@ beginRO(Tid) ->
     io:format("~s~n",[rpc:call(tm@localhost, adb_tm, beginRO, [Tid])]).
 
 r(Tid, ValId) ->
-    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, read, [Tid, ValId])]).
+    {A,B}=rpc:call(tm@localhost, adb_tm, read, [Tid, ValId]),
+    io:format("~s~s~n",[A,B]).
     
 w(Tid, ValId, Value) ->
-    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, write, [Tid, ValId, Value])]).
+    {A,B,C}=rpc:call(tm@localhost, adb_tm, write, [Tid, ValId, Value]),
+    io:format("~s~s~s~n",[A,B,C]).
 
 dump() ->
     io:format("~s~n",[rpc:call(tm@localhost, adb_tm, dump, [])]).
