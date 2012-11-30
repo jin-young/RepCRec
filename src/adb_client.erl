@@ -13,7 +13,7 @@ parse(X) -> send_command(string:tokens(X, ";")).
 % But I don't have enough space to prove it.
 send_command([]) -> {ok};
 send_command([H|TL]) -> 
-    Cmd = string:strip(string:strip(string:strip(H, both), both, $\n),both, $\t),%skip white space
+    Cmd = string:strip(string:strip(string:strip(string:strip(H, both), both, $\n),both, $\t),both),%skip white space
     if length(Cmd) =:= 0 -> send_command(TL); % skip empty line
       true ->
          case re:run(Cmd, "^\/\/.*") of
@@ -87,11 +87,11 @@ beginRO(Tid) ->
     io:format("~s~n",[rpc:call(tm@localhost, adb_tm, beginRO, [Tid])]).
 
 r(Tid, ValId) ->
-    {A,B}=rpc:call(tm@localhost, adb_tm, read, [Tid, ValId]),
+    {A,B}=rpc:call(tm@localhost, adb_tm, r, [Tid, ValId]),
     io:format("~s~s~n",[A,B]).
     
 w(Tid, ValId, Value) ->
-    {A,B,C}=rpc:call(tm@localhost, adb_tm, write, [Tid, ValId, Value]),
+    {A,B,C}=rpc:call(tm@localhost, adb_tm, w, [Tid, ValId, Value]),
     io:format("~s~s~s~n",[A,B,C]).
 
 dump() ->
