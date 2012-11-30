@@ -2,21 +2,22 @@
 // Transaction Manager (TM)
 
 
+
 case: beginT(Tx) 
       // add T to ageList
-      TM:ageList.add(Tx).
+      ageList.add(Tx).
 
 case beginTR(Tx)
      //read only, copy 
 
 case: fail(n)
      // make those site una/v
-     server:fail(n)
+     db:fail(n)
      // kill all transaction that access site(n), except RO transaction     
 
 case: recover(n)
       // make site n a/v
-      server:recover(n)
+      db:recover(n)
 
 case: R | W 
       while (TM:waitList != empty ){	
