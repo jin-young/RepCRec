@@ -46,18 +46,7 @@ rpc(Q) ->
 	    Reply
     end.
 
-addWriteLock(TranId, ValId, WriteLock) ->
-	WriteLockExist = fun(X) -> (fun({T,Xtmp}) -> Xtmp =:= X end) end,
-	case lists:member(true, lists:map(WriteLockExist(ValId), WriteLock)) of
-		true ->
-			[{Trans, ValId}] = lists:filter(WriteLockExist(ValId), WriteLock),
-			io:format("~s~n", [TranId]),
-			[];
-		false ->
-			io:format("~s performed~n", [TranId]),
-			[{TranId, ValId}]	
-			% perform operation
-	end.
+
 
 loop(AgeList, WaitList, WriteLock, ReadLock, AccessList) ->
     receive
@@ -74,7 +63,18 @@ loop(AgeList, WaitList, WriteLock, ReadLock, AccessList) ->
 		
 	{From, {w, {Tid, ValId, Value}}} ->
 		From ! {adb_tm, {Tid, ValId, Value}},
-		loop(AgeList, WaitList, lists:append(WriteLock, addWriteLock(Tid, ValId, WriteLock)), ReadLock, AccessList);
+		WriteLockExist = fun(X) -> (fun({T,Xtmp}) -> Xtmp =:= X end) end,
+		case lists:member(true, lists:map(WriteLockExist(ValId), WriteLock)) of
+			true ->
+				[{Trans, ValId}] = lists:filter(WriteLockExist(ValId), WriteLock),
+				io:format("~s~n", [Tid]),
+				loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
+			false ->
+				io:format("~s performed~n", [Tid]),
+				loop(AgeList, WaitList, lists:append(WriteLock,[{Tid, ValId}]), ReadLock, AccessList)	
+				% perform operation
+		end;
+		%loop(AgeList, WaitList, lists:append(WriteLock, addWriteLock(Tid, ValId, WriteLock)), ReadLock, AccessList);
 	
 	{From, {r, {Tid, ValId}}} ->
 		From ! {adb_tm, {Tid, ValId}},
