@@ -2,9 +2,10 @@
 %-export([start/0, stop/0, beginT/1, endT/1, write/3, read/2, beginRT/1, dump/0, dump/1, fail/1, recover/1).
 -export([start/0, beginT/1, endT/1, w/3, r/2, beginRO/1, dump/0, dump/1, fail/1, recover/1]).
 
+
 start() ->
      register(adb_tm, spawn(fun() ->
-				     loop() end)).
+				     loop(AgeList=[], WaitList=[], WriteLock=[], ReadLock=[], AccessList=[]) end)).
 beginT(Tid) ->
 	rpc({beginT, Tid}).
 		
@@ -45,36 +46,39 @@ rpc(Q) ->
 	    Reply
     end.
 
-loop() ->
+loop(AgeList, WaitList, WriteLock, ReadLock, AccessList) ->
     receive
 	{From, {beginT, TransId}} ->
-		
 		From ! {adb_tm, TransId},
 	    %if lookupT(TransId) == undefined ->
 		    %NewTransId = spawn(fun() -> adb_tran:start()), registerT(newTransId), From ! {ok};
-	    loop();
+		%io:format("Hello ~s", AgeList),
+		%lists:append([[1, 2, 3], [a, b], [4, 5, 6]]).
+		%lists:add(Agelist, [TransId]), 
+		%io:format("~w~n", [AgeList]),
+		loop(lists:append(AgeList,[TransId]), WaitList, WriteLock, ReadLock, AccessList);
 	{From, {endT, Tid}} ->
 		From ! {adb_tm, Tid},
-	    loop();
+	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
 	{From, {w, {Tid, ValId, Value}}} ->
 		From ! {adb_tm, {Tid, ValId, Value}},
-	    loop();
+	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
 	{From, {r, {Tid, ValId}}} ->
 		From ! {adb_tm, {Tid, ValId}},
-	    loop();
+	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
 	{From, {beginRO, Tid}} ->
 		From ! {adb_tm, Tid},
-	    loop();
+	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
 	{From, {dump}} ->
 		From ! {adb_tm, dump},
-	    loop();
+	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
 	{From, {dump, Sid}} ->
 		From ! {adb_tm, Sid},
-	    loop();
+	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
     {From, {fail, Sid}} ->
 		From ! {adb_tm, Sid},
-	    loop();
+	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
 	{From, {recover, Sid}} ->
 		From ! {adb_tm, Sid},
-	    loop()
+	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList)
     end.
