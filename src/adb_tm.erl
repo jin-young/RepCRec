@@ -52,10 +52,7 @@ loop(AgeList, WaitList, WriteLock, ReadLock, AccessList) ->
 		From ! {adb_tm, TransId},
 	    %if lookupT(TransId) == undefined ->
 		    %NewTransId = spawn(fun() -> adb_tran:start()), registerT(newTransId), From ! {ok};
-		%io:format("Hello ~s", AgeList),
-		%lists:append([[1, 2, 3], [a, b], [4, 5, 6]]).
-		%lists:add(Agelist, [TransId]), 
-		%io:format("~w~n", [AgeList]),
+		%io:format("~s~n", [AgeList]),
 		loop(lists:append(AgeList,[TransId]), WaitList, WriteLock, ReadLock, AccessList);
 	{From, {endT, Tid}} ->
 		From ! {adb_tm, Tid},
@@ -68,7 +65,8 @@ loop(AgeList, WaitList, WriteLock, ReadLock, AccessList) ->
 	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
 	{From, {beginRO, Tid}} ->
 		From ! {adb_tm, Tid},
-	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
+		% create snapshot isolation
+	    loop(lists:append(AgeList,[TransId]), WaitList, WriteLock, ReadLock, AccessList);
 	{From, {dump}} ->
 		From ! {adb_tm, dump},
 	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
@@ -76,9 +74,11 @@ loop(AgeList, WaitList, WriteLock, ReadLock, AccessList) ->
 		From ! {adb_tm, Sid},
 	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
     {From, {fail, Sid}} ->
+		% signal fail to site sid
 		From ! {adb_tm, Sid},
 	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
 	{From, {recover, Sid}} ->
 		From ! {adb_tm, Sid},
+		% signal recover to site sid
 	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList)
     end.
