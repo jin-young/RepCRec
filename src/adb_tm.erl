@@ -62,8 +62,22 @@ loop(AgeList, WaitList, WriteLock, ReadLock, AccessList) ->
 	{From, {w, {Tid, ValId, Value}}} ->
 		From ! {adb_tm, {Tid, ValId, Value}},
 		% write operation
-		
-	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
+		% Lock = [{t1,x1},{t2,x2},{t3,x5},{t4,x9}].
+		% Exist = fun(X) -> (fun({T,Xtmp}) -> Xtmp =:= X end) end.
+		% lists:map(Exist(x2), Lock).
+	    % lists:member(true, lists:map(Exist(x7), B)).
+		WriteLockExist = fun(X) -> (fun({T,Xtmp}) -> Xtmp =:= X end) end,
+		case lists:member(true, lists:map(WriteLockExist(ValId), WriteLock)) of
+			true ->
+				Lock = {},
+				[{Trans,ValId}] = lists:filter(WriteLockExist(ValId), WriteLock),
+				io:format("~s~n", [Trans]);
+			false ->
+				% lock free, perform
+				Lock = {Tid, ValId},
+				io:format("perform operation~n")
+		end,
+		loop(AgeList, WaitList,lists:append(WriteLock,[Lock]), ReadLock, AccessList);
 	
 	{From, {r, {Tid, ValId}}} ->
 		From ! {adb_tm, {Tid, ValId}},
@@ -74,7 +88,7 @@ loop(AgeList, WaitList, WriteLock, ReadLock, AccessList) ->
 	{From, {beginRO, Tid}} ->
 		From ! {adb_tm, Tid},
 		% create snapshot isolation
-	    loop(lists:append(AgeList,[TransId]), WaitList, WriteLock, ReadLock, AccessList);
+	    loop(lists:append(AgeList,[Tid]), WaitList, WriteLock, ReadLock, AccessList);
 	
 	{From, {dump}} ->
 		From ! {adb_tm, dump},
