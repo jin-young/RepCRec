@@ -166,12 +166,50 @@ loop(Status) ->
 		            end
             end,	                        
 			loop(Status);		
-		{From, {release, VarId}} ->
+		{From, {release, TransId, VarId}} ->
 			io:format("Release: ~p~n", [VarId]),
-			From ! {From, ok},
+			case ets:lookup(wlock, VarId) of
+			    [] -> [];
+                [{_, Tid}] ->
+                    io:format("Released write lock on ~p hold by ~p~n", [VarId, Tid]),
+                    ets:delete(wlock, VarId)
+            end,
+            case ets:lookup(rlock, VarId) of
+			    [] -> [];
+                [{_, Tids}] ->
+                    NewTids = lists:delete(TransId, Tids),
+                    io:format("Released read lock on ~p hold by ~p~n", [VarId, TransId]),
+                    case NewTids of 
+                        [] ->
+                            ets:delete(rlock, VarId);
+                        _ ->
+                            ets:insert(rlock, {VarId, NewTids})
+                    end
+            end,
+			From ! {From, true},
 			loop(Status);
 		{From, {status}} ->
 			io:format("Status: ~p~n", [Status]),
 			From ! {From, Status},
 			loop(Status)			
 	end.
+	
+%% Lock Senario 1
+%% adb_db:rl_acquire("T1", x1).  => {true,["T1"]}
+%% adb_db:release("T1", x1).  => true
+%% adb_db:rl_acquire("T2", x1).  => {true,["T2"]}
+%% adb_db:wl_acquire("T2", x1).  => {true,["T2"]}
+%% adb_db:wl_acquire("T1", x1).  => {false,["T2"]}
+%% adb_db:release("T2", x1).     => true
+%% adb_db:wl_acquire("T1", x1).  => {true,["T1"]}
+%% adb_db:rl_acquire("T1", x1).  => {true,["T1"]}
+%% adb_db:rl_acquire("T1", x1).  => {false,["T1"]}
+
+%% Lock Senario 2
+%% adb_db:rl_acquire("T1",x1).
+%% adb_db:rl_acquire("T2",x1).
+%% adb_db:wl_acquire("T3",x1). => {false,["T1","T2"]}
+%% adb_db:wl_acquire("T2",x1). => {false,["T1","T2"]}
+%% adb_db:release("T1",x1).
+%% adb_db:release("T2",x1).
+%% adb_db:wl_acquire("T3",x1). => {true,["T3"]}
