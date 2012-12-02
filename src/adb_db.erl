@@ -1,10 +1,10 @@
 -module(adb_db).
 
--export([start/0, stop/0, snapshot/0, snapshot/1, fail/1, recover/1, rl_acquire/2, wl_acquire/2, release/2, status/1]).
+-export([start/0, stop/0, snapshot/0, snapshot/1, fail/1, recover/1, rl_acquire/2, wl_acquire/2, release/2, status/1, read/1]).
 
 start() ->
     spawn(fun() -> createTable() end),
-	ok = createServer(10, 1, rlock, wlock).
+	createServer(10, 1).
 
 stop() ->
     ok.
@@ -15,36 +15,42 @@ rl_acquire(TransId, VarId) ->
 wl_acquire(TransId, VarId) ->
     rpc({wl_acquire, TransId, VarId}).
     
+read(VarId) ->
+    ok.
+    
 %%--------------------------------------------------------------------
-%% Function: release(VarId) -> {ok, TransId}
+%% Function: release(VarId) -> ok
 %%--------------------------------------------------------------------
 release(TransId, VarId) ->
     rpc({release, TransId, VarId}).   
 
 %%--------------------------------------------------------------------
-%% Function: snapshot(SiteId) -> {ok, SiteId, Variables}
+%% Function: snapshot(SiteId) -> {SiteId, up|down, [{VariableId, Value}]}
 %%--------------------------------------------------------------------
 snapshot(SiteIdx) ->
-    rpc(getId(SiteIdx), {snapshot, SiteIdx}).
+    rpc(getId(SiteIdx), {snapshot}).
     
 %%--------------------------------------------------------------------
-%% Function: snapshot() -> {ok, {...}}
+%% Function: snapshot() -> [{SiteId, up|down, [{VariableId, Value}]}]
 %%--------------------------------------------------------------------
 snapshot() ->
-    {ok, {}}.    
+    collectValues(1, 10, []).
 	
 %%--------------------------------------------------------------------
-%% Function: fail() -> {ok, Time}
+%% Function: fail(SiteIdx) -> true
 %%--------------------------------------------------------------------    
 fail(SiteIdx) ->
-	rpc(getId(SiteIdx), {fail, SiteIdx}).
+	rpc(getId(SiteIdx), {fail}).
     
 %%--------------------------------------------------------------------
-%% Function: recover() -> {ok, Time}
+%% Function: recover(SiteIdx) -> true
 %%--------------------------------------------------------------------    
 recover(SiteIdx) ->
-   rpc(getId(SiteIdx), {recover, SiteIdx}).
-   
+   rpc(getId(SiteIdx), {recover}).
+ 
+%%--------------------------------------------------------------------
+%% Function: status() -> up|down
+%%--------------------------------------------------------------------    
 status(SiteIdx) ->
    rpc(getId(SiteIdx), {status}).
       
@@ -52,6 +58,19 @@ status(SiteIdx) ->
 %% Internal functions
 %%====================================================================
 
+initialize(SiteIdx) ->
+    rpc(getId(SiteIdx), {initialize}).
+    
+collectValues(CurrentIdx, EndIdx, Values) ->
+    case CurrentIdx =< EndIdx of
+		true -> 
+		        case status(CurrentIdx) of
+		            up -> collectValues(CurrentIdx+1, EndIdx, lists:append(Values, [snapshot(CurrentIdx)]));
+		            down -> collectValues(CurrentIdx+1, EndIdx, lists:append(Values, [{CurrentIdx, down}]))
+		        end;
+		false -> Values
+    end.    
+    
 createTable() ->
 	ets:new(rlock, [named_table, public, set]),
 	ets:new(wlock, [named_table, public, set]),
@@ -78,28 +97,32 @@ rpc(Q) ->
 getId(SiteIdx) ->
 	list_to_atom(string:concat("adb_db", integer_to_list(SiteIdx))).
 	
-createServer(TotalServer, SiteIdx, RLockTableId, WLockTableId) ->
+createServer(TotalServer, SiteIdx) ->
 	case SiteIdx =< TotalServer of
-		true -> io:format("create site ~p.~n", [getId(SiteIdx)]),
-				register(getId(SiteIdx), spawn(fun() -> loop(up) end)),
-			    createServer(TotalServer, SiteIdx+1, RLockTableId, WLockTableId);
+		true -> 
+		        Sid = getId(SiteIdx),
+		        io:format("create site ~p.~n", [Sid]),
+				register(Sid, spawn(fun() -> loop(SiteIdx, up) end)),
+				initialize(SiteIdx),
+				createServer(TotalServer, SiteIdx+1);
 		false -> ok
     end.
     
-loop(Status) ->
+loop(SiteIdx, Status) ->
 	receive
-		{From, {snapshot, SiteIdx}} ->
+		{From, {snapshot}} ->
 			io:format("Snapshot: ~p~n", [SiteIdx]),
-			From ! {From, ok},
-			loop(Status);
-		{From, {fail, SiteIdx}} ->
+			TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
+			From ! {From, {SiteIdx, up, ets:tab2list(TblId)}},
+			loop(SiteIdx, Status);
+		{From, {fail}} ->
 			io:format("Fail: ~p from ~p~n", [SiteIdx, From]),
-			From ! {From, ok},
-			loop(down);		
-		{From, {recover, SiteIdx}} ->
+			From ! {From, true},
+			loop(SiteIdx, down);		
+		{From, {recover}} ->
 			io:format("Recover: ~p~n", [SiteIdx]),
-			From ! {From, ok},
-			loop(up);
+			From ! {From, true},
+			loop(SiteIdx, up);
 		{From, {rl_acquire, TransId, VarId}} ->
 		    case ets:lookup(wlock, VarId) of
                 [] ->
@@ -129,7 +152,7 @@ loop(Status) ->
 		                    From ! {From, {false, [Tid]}}
 		            end
             end,	                        
-			loop(Status);
+			loop(SiteIdx, Status);
 		{From, {wl_acquire, TransId, VarId}} ->
 			case ets:lookup(wlock, VarId) of
                 [] ->
@@ -165,7 +188,7 @@ loop(Status) ->
 		                    From ! {From, {false, [Tid]}}
 		            end
             end,	                        
-			loop(Status);		
+			loop(SiteIdx, Status);		
 		{From, {release, TransId, VarId}} ->
 			io:format("Release: ~p~n", [VarId]),
 			case ets:lookup(wlock, VarId) of
@@ -187,11 +210,45 @@ loop(Status) ->
                     end
             end,
 			From ! {From, true},
-			loop(Status);
+			loop(SiteIdx, Status);
 		{From, {status}} ->
 			io:format("Status: ~p~n", [Status]),
 			From ! {From, Status},
-			loop(Status)			
+			loop(SiteIdx, Status);
+		{From, {initialize}} ->
+		    io:format("Initialize site ~p~n", [SiteIdx]),
+		    TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
+		    ets:new(TblId, [named_table, set]),
+		    ets:insert(TblId, {"x2", 20}),
+		    ets:insert(TblId, {"x4", 40}),
+		    ets:insert(TblId, {"x6", 60}),
+		    ets:insert(TblId, {"x8", 80}),
+		    ets:insert(TblId, {"x10", 100}),
+		    ets:insert(TblId, {"x12", 120}),
+		    ets:insert(TblId, {"x14", 140}),
+		    ets:insert(TblId, {"x16", 160}),
+		    ets:insert(TblId, {"x18", 180}),
+		    ets:insert(TblId, {"x20", 200}),
+		    case SiteIdx of
+		        2 ->
+		            ets:insert(TblId, {"x1", 10}),
+		            ets:insert(TblId, {"x11", 110});
+		        4 ->
+		            ets:insert(TblId, {"x3", 30}),
+		            ets:insert(TblId, {"x13", 130});		        
+		        6 ->
+		            ets:insert(TblId, {"x5", 50}),
+		            ets:insert(TblId, {"x15", 150});			        
+		        8 ->
+		            ets:insert(TblId, {"x7", 70}),
+		            ets:insert(TblId, {"x17", 170});			        
+		        10 ->
+		            ets:insert(TblId, {"x9", 90}),
+		            ets:insert(TblId, {"x19", 190});
+	            _ -> []  
+		    end,
+		    From ! {From, ok},
+		    loop(SiteIdx, Status)
 	end.
 	
 %% Lock Senario 1
@@ -213,3 +270,27 @@ loop(Status) ->
 %% adb_db:release("T1",x1).
 %% adb_db:release("T2",x1).
 %% adb_db:wl_acquire("T3",x1). => {true,["T3"]}
+
+
+%% snapshot Senario 1
+%% adb_db:fail(3).
+%% adb_db:fail(4).
+%% adb_db:fail(5).
+%% adb_db:fail(6).
+%% adb_db:snapshot(). =>
+%% [
+%%  {1,up, [{"x16",160}, {"x6",60}, {"x20",200}, {"x18",180}, {"x4",40}, {"x14",140}, {"x12",120}, {"x8",80}, {"x2",20}, {"x10",100}]},
+%%  {2,up, [{"x11",110}, {"x16",160}, {"x6",60}, {"x20",200}, {"x18",180}, {"x4",40}, {"x1",10}, 
+%%          {"x14",140}, {"x12",120}, {"x8",80}, {"x2",20},   {"x10",100}]},
+%%  {3,down},
+%%  {4,down},
+%%  {5,down},
+%%  {6,down},
+%%  {7,up, [{"x16",160}, {"x6",60}, {"x20",200}, {"x18",180}, {"x4",40}, {"x14",140}, {"x12",120}, {"x8",80}, {"x2",20}, {"x10",100}]},
+%%  ....
+%% ]
+
+%% snapshot Senario 2
+%% adb_db:snapshot(3). =>
+%% {3,up, [{"x16",160}, {"x6",60}, {"x20",200}, {"x18",180}, {"x4",40}, {"x14",140}, {"x12",120}, {"x8",80}, {"x2",20}, {"x10",100}]}
+
