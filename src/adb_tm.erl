@@ -60,18 +60,23 @@ whoOlder(T1, T2, List) ->
 % abort function
 % clean up function
 isMember(Tid, List) ->
-	[Head|Tail] = List,
-	[Operation | Detail ]= Head,
-	case Detail of 
-		{Tid,_} -> 
-			true;
-		{Tid,_,_} ->
-			true;
-		{Tid,_,_} ->
-			true;
-		_ ->
-			isMember(Tid, Tail)
-	end.
+	case List of
+			[] ->
+				false;
+			[Head|Tail] -> 
+				[Operation|Detail]= Head,
+				case Detail of 
+					[{Tid,_,_}] -> 
+						true;
+					[{Tid,_}] ->
+						true;
+					[{Tid}] ->
+						true;
+					_ ->
+						isMember(Tid, Tail)
+				end
+	end.				
+
 
 loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
     receive
