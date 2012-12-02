@@ -57,6 +57,55 @@ whoOlder(T1, T2, List) ->
 			whoOlder(T1, T2, Tail)
 	end.
 
+checkReadWaitListOlder(Tid, ValId, WaitList, AgeList) ->
+	case WaitList of
+			[] ->
+				true;
+			[Head|Tail] -> 
+				[Operation|Detail]= Head,
+				case Detail of 
+					[{_,ValId,_}] ->
+						[{THold, ValId,_}] = Detail,
+						case  whoOlder(Tid, THold, AgeList) =:= Tid of
+							true ->
+								checkReadWaitListOlder(Tid, ValId, Tail, AgeList);
+							false ->
+								false	
+						end;
+					 _ ->
+						checkReadWaitListOlder(Tid, ValId, Tail, AgeList)	
+				end
+	end.	
+	
+checkWriteWaitListOlder(Tid, ValId, WaitList, AgeList) ->
+	case WaitList of
+			[] ->
+				true;
+			[Head|Tail] -> 
+				[Operation|Detail]= Head,
+				case Detail of 
+					[{_,ValId,_}] ->
+						[{THold, ValId,_}] = Detail,
+						case  whoOlder(Tid, THold, AgeList) =:= Tid of
+							true ->
+								checkWriteWaitListOlder(Tid, ValId, Tail, AgeList);
+							false ->
+								false	
+						end;
+					[{_,ValId}] ->
+						[{THold, ValId}] = Detail,
+						case  whoOlder(Tid, THold, AgeList) =:= Tid of
+							true ->
+								checkWriteWaitListOlder(Tid, ValId, Tail, AgeList);
+							false ->
+								false	
+						end;
+					[_] ->
+						checkWriteWaitListOlder(Tid, ValId, Tail, AgeList)	
+				end
+	end.			
+	
+
 %cleanUp(Tid, AgeList, ROList, WaitList, AccessList, AbortList) ->
 	% release lock -> Tid and ValId that Tid hold from AccessList
 	% remove Tid from every list
@@ -105,47 +154,50 @@ deleteElement(Tid, List, TmpList) ->
 checkWaitList(AccessList, WaitList, NewWaitList) ->
 	case WaitList of
 		[] ->
-			lists:append([NewAccessList],[NewWaitList]);
+			lists:append([AccessList],[NewWaitList]);
 		[Head|Tail] ->
 			case Head of
-				[{w,_}] ->
-					[{w,{Tid, ValId , Value }}] = Head,
+				[w,_] ->
+					[w,{Tid, ValId , Value }] = Head,
 					case db:wl_acquire(Tid, ValId) of  
 							{false, THoldLock} -> 
 								checkWaitList(AccessList, Tail, lists:append(NewWaitList, [Head]));
 							true ->
 								io:format("~s performed~n", [Tid]),
 								% perform operation
-								checkWaitList(lists:append(AccessList, [Head]), Tail, deleteElement(Tid,WaitList, []))
-						end;
-				[{r,_}] ->
-					[{r,{Tid, ValId}}] = Head,
+								checkWaitList(lists:append([Head],AccessList), Tail, deleteElement(Tid,WaitList, []))
+					end;
+				[r,_] ->
+					[r,{Tid, ValId}] = Head,
+					% check readonly
 					case db:rl_acquire(Tid, ValId) of  
-							{false, THoldLock} -> 
-								checkWaitList(AccessList, Tail, lists:append(NewWaitList, [Head]));
-							true ->
-								io:format("~s performed~n", [Tid]),
-								% perform operation
-								checkWaitList(lists:append(AccessList, [Head]), Tail, deleteElement(Tid,WaitList, []))
-						end;
-				[{endT, _}] -> 		
-					[{endT,Tid}] = Head,
-					case isMember(Tid, NewWaitList) of
-							true->
-								checkWaitList(AccessList, Tail, NewWaitList)
-							false->
-								%commit and cleanup;						
-					end
-					
-			end
+						{false, THoldLock} -> 
+							checkWaitList(AccessList, Tail, lists:append(NewWaitList, [Head]));
+						true ->
+							io:format("~s performed~n", [Tid]),
+							% perform operation
+							checkWaitList(lists:append([Head],AccessList), Tail, deleteElement(Tid,WaitList, []))
+					end;
+				[endT, _] -> 		
+					[endT,Tid] = Head,
+					TmpList = lists:delete([endT,Tid], NewWaitList),
+					case isMember(Tid, TmpList) of
+						true->
+							checkWaitList(AccessList, Tail, NewWaitList);
+						false->
+							checkWaitList(AccessList, Tail, deleteElement(Tid,WaitList, []))
+							%commit and cleanup;						
+					end		
+				end
 	end.
+
 
 abort(Tid, AgeList, ROList, WaitList, AccessList, AbortList) ->
 	% release lock -> Tid and ValId that Tid hold from AccessList
 	% remove Tid from every list
 	% add Tid to abort list
 	% new operation from WaitList ask JYdd
-	release(Tid, ValId),
+	% release(Tid, ValId),
 	
 	
 	NewWaitList = deleteElement(Tid,WaitList,[]),
@@ -153,6 +205,7 @@ abort(Tid, AgeList, ROList, WaitList, AccessList, AbortList) ->
 	[NewAccessList2|NewWaitList2] = checkWaitList(NewAccessList, NewWaitList, []),
 	loop(lists:delete(Tid,AgeList), ROList, NewWaitList2, NewAccessList2, lists:append(AbortList, [Tid])).
 	
+
 
 loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
     receive
@@ -188,7 +241,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 				% compare age to WaitList or holding lock transaction
 				%[{THoldLock, ValId}] = lists:filter(WriteLockExist(ValId), WriteLock),
 				 
-				 case whoOlder(THoldLock, Tid, AgeList) =:= Tid of
+				 case whoOlder(THoldLock, Tid, AgeList) =:= Tid andalso checkWriteWaitListOlder(Tid, ValId, WaitList, AgeList) of
 					true ->
 						 % keep in the waitlist
 	 					% we have to check the conflict in the waitlist as well
@@ -200,7 +253,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 				 end;
 			true ->
 				io:format("~s performed~n", [Tid]),
-				loop(AgeList,ROList, WaitList, list:append(AccessList, [[w, {Tid, ValId, Value}]]), AbortList)	
+				loop(AgeList,ROList, WaitList, list:append([[w, {Tid, ValId, Value}]], AccessList ), AbortList)	
 				% perform operation
 		end;
 		%loop(AgeList, WaitList, lists:append(WriteLock, addWriteLock(Tid, ValId, WriteLock)), ReadLock, AccessList);
@@ -214,7 +267,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 				% compare age to WaitList or holding lock transaction
 				%[{THoldLock, ValId}] = lists:filter(WriteLockExist(ValId), WriteLock),
 				 
-				 case whoOlder(THoldLock, Tid, AgeList) =:= Tid of
+				 case whoOlder(THoldLock, Tid, AgeList) =:= Tid andalso checkReadWaitListOlder(Tid, ValId, WaitList, AgeList) of
 					true ->
 						 % keep in the waitlist
 						% we have to check the conflict in the waitlist as well	
@@ -225,7 +278,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 				end;
 			true ->
 				io:format("~s performed~n", [Tid]),
-				loop(AgeList,ROList, WaitList,lists:append(AccessList,[[r, {Tid}]]), AbortList)	
+				loop(AgeList,ROList, WaitList,lists:append([[r, {Tid}]],AccessList), AbortList)	
 				% perform operation
 		end;
 		
