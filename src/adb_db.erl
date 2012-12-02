@@ -132,14 +132,40 @@ loop(Status) ->
 			loop(Status);
 		{From, {wl_acquire, TransId, VarId}} ->
 			case ets:lookup(wlock, VarId) of
-				[] -> 
-					io:format("Acquired: ~p holds a write lock on ~p~n", [TransId, VarId]),
-					ets:insert(wlock, {VarId, TransId}),
-					From ! {From, true};
-				[{_, Tid}] ->
-					From ! {From, {false, Tid}}
-			end,
-			loop(Status);			
+                [] ->
+			        case ets:lookup(rlock, VarId) of
+				        [] -> 
+					        io:format("Acquired: ~p holds a write lock on ~p~n", [TransId, VarId]),
+					        ets:insert(wlock, {VarId, TransId}),
+					        From ! {From, {true, [TransId]}};
+				        [{_, [H|TL]}] ->
+				            case TL of
+				                [] ->
+				                    case H =:= TransId of
+				                        true ->
+				                            io:format("Acquired: ~p already holds a read lock on ~p~n", [TransId, VarId]),
+				                            ets:insert(wlock, {VarId, TransId}),
+				                            From ! {From, {true, [TransId]}};
+				                        false ->
+				                            io:format("Acquiring Failed: ~p holds a read lock on ~p~n", [H, VarId]),
+					                        From ! {From, {false, [H]}}
+					                end;
+                                _ ->
+                                    io:format("Acquiring Failed: there are multiple read locks on ~p~n", [VarId]),
+					                From ! {From, {false, [H|TL]}}
+					       end
+			        end;
+                [{_, Tid}] ->
+		            case Tid =:= TransId of
+		                true ->
+		                    io:format("Acquired: ~p already holds a write lock on ~p~n", [TransId, VarId]),
+		                    From ! {From, {true, [TransId]}};
+	                    false ->
+		                    io:format("Acquiring Failed: ~p already holds a write lock on ~p~n", [Tid, VarId]),
+		                    From ! {From, {false, [Tid]}}
+		            end
+            end,	                        
+			loop(Status);		
 		{From, {release, VarId}} ->
 			io:format("Release: ~p~n", [VarId]),
 			From ! {From, ok},
