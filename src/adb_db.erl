@@ -3,9 +3,8 @@
 -export([start/0, stop/0, snapshot/0, snapshot/1, fail/1, recover/1, rl_acquire/2, wl_acquire/2, release/2, status/1]).
 
 start() ->
-	RLockTableId = ets:new(rlock, [set, public]),
-	WLockTableId = ets:new(wlock, [set, public]),
-	ok = createServer(10, 1, RLockTableId, WLockTableId).
+    spawn(fun() -> createTable() end),
+	ok = createServer(10, 1, rlock, wlock).
 
 stop() ->
     ok.
@@ -53,6 +52,13 @@ status(SiteIdx) ->
 %% Internal functions
 %%====================================================================
 
+createTable() ->
+	ets:new(rlock, [named_table, public, set]),
+	ets:new(wlock, [named_table, public, set]),
+	receive
+	    _ -> []
+	end.
+
 rpc(Sid, Q) ->
 	Caller = self(),
     Sid ! {Caller, Q},
@@ -62,9 +68,10 @@ rpc(Sid, Q) ->
     end.
     
 rpc(Q) ->
-    adb_db1 ! {self(), Q},
+    Caller = self(),
+    adb_db1 ! {Caller, Q},
     receive
-		{adb_db1, Reply} ->
+		{Caller, Reply} ->
 			Reply
     end.    
     
@@ -74,51 +81,71 @@ getId(SiteIdx) ->
 createServer(TotalServer, SiteIdx, RLockTableId, WLockTableId) ->
 	case SiteIdx =< TotalServer of
 		true -> io:format("create site ~p.~n", [getId(SiteIdx)]),
-				register(getId(SiteIdx), spawn(fun() -> loop(RLockTableId, WLockTableId, up) end)),
+				register(getId(SiteIdx), spawn(fun() -> loop(up) end)),
 			    createServer(TotalServer, SiteIdx+1, RLockTableId, WLockTableId);
 		false -> ok
     end.
     
-loop(RLockTableId, WLockTableId, Status) ->
+loop(Status) ->
 	receive
 		{From, {snapshot, SiteIdx}} ->
 			io:format("Snapshot: ~p~n", [SiteIdx]),
 			From ! {From, ok},
-			loop(RLockTableId, WLockTableId, Status);
+			loop(Status);
 		{From, {fail, SiteIdx}} ->
 			io:format("Fail: ~p from ~p~n", [SiteIdx, From]),
 			From ! {From, ok},
-			loop(RLockTableId, WLockTableId, down);		
+			loop(down);		
 		{From, {recover, SiteIdx}} ->
 			io:format("Recover: ~p~n", [SiteIdx]),
 			From ! {From, ok},
-			loop(RLockTableId, WLockTableId, up);
+			loop(up);
 		{From, {rl_acquire, TransId, VarId}} ->
-			case ets:lookup(RLockTableId, VarId) of
-				[] -> 
-					io:format("Acquired: ~p holds a read lock on ~p~n", [TransId, VarId]),
-					ets:insert(RLockTableId, {VarId, TransId}),
-					From ! {From, ok};
-				[{_, Tid}] ->
-					From ! {From, {no, Tid}}
-			end,
-			loop(RLockTableId, WLockTableId, Status);
+		    case ets:lookup(wlock, VarId) of
+                [] ->
+			        case ets:lookup(rlock, VarId) of
+				        [] -> 
+					        io:format("Acquired: ~p holds a read lock on ~p~n", [TransId, VarId]),
+					        ets:insert(rlock, {VarId, [TransId]}),
+					        From ! {From, {true, [TransId]}};
+				        [{_, Tids}] ->
+				            case lists:member(TransId, Tids) of
+				                true ->
+            				        io:format("Acquired: ~p already holds a read lock on ~p~n", [TransId, VarId]),
+	            			        From ! {From, {true, Tids}};
+	            			    false ->
+	            			        ets:insert(rlock, {VarId, lists:append(Tids, [TransId])}),
+	            			        [{_, C}] = ets:lookup(rlock, VarId),
+					                From ! {From, {true, C}}
+				            end
+			        end;
+                [{_, Tid}] ->
+		            case Tid =:= TransId of
+		                true ->
+		                    io:format("Acquired: ~p already holds a write lock on ~p~n", [TransId, VarId]),
+		                    From ! {From, {true, [TransId]}};
+	                    false ->
+		                    io:format("Acquiring Failed: ~p already holds a write lock on ~p~n", [Tid, VarId]),
+		                    From ! {From, {false, [Tid]}}
+		            end
+            end,	                        
+			loop(Status);
 		{From, {wl_acquire, TransId, VarId}} ->
-			case ets:lookup(WLockTableId, VarId) of
+			case ets:lookup(wlock, VarId) of
 				[] -> 
 					io:format("Acquired: ~p holds a write lock on ~p~n", [TransId, VarId]),
-					ets:insert(RLockTableId, {VarId, TransId}),
-					From ! {From, ok};
+					ets:insert(wlock, {VarId, TransId}),
+					From ! {From, true};
 				[{_, Tid}] ->
-					From ! {From, {no, Tid}}
+					From ! {From, {false, Tid}}
 			end,
-			loop(RLockTableId, WLockTableId, Status);			
+			loop(Status);			
 		{From, {release, VarId}} ->
 			io:format("Release: ~p~n", [VarId]),
 			From ! {From, ok},
-			loop(RLockTableId, WLockTableId, Status);
+			loop(Status);
 		{From, {status}} ->
 			io:format("Status: ~p~n", [Status]),
 			From ! {From, Status},
-			loop(RLockTableId, WLockTableId, Status)			
+			loop(Status)			
 	end.
