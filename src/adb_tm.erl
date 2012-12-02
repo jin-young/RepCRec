@@ -57,6 +57,8 @@ whoOlder(T1, T2, List) ->
 			whoOlder(T1, T2, Tail)
 	end.
 
+% abort function
+% clean up function
 
 loop(AgeList, WaitList, AccessList, AbortList) ->
     receive
@@ -91,7 +93,7 @@ loop(AgeList, WaitList, AccessList, AbortList) ->
 				 end;
 			true ->
 				io:format("~s performed~n", [Tid]),
-				loop(AgeList, WaitList, AccessList, AbortList)	
+				loop(AgeList, WaitList, list:append(AccessList, [w, {Tid, ValId, Value}]), AbortList)	
 				% perform operation
 		end;
 		%loop(AgeList, WaitList, lists:append(WriteLock, addWriteLock(Tid, ValId, WriteLock)), ReadLock, AccessList);
@@ -115,7 +117,7 @@ loop(AgeList, WaitList, AccessList, AbortList) ->
 				end;
 			true ->
 				io:format("~s performed~n", [Tid]),
-				loop(AgeList, WaitList, AccessList, AbortList)	
+				loop(AgeList, WaitList,lists:append(AccessList,[r, {Tid}]), AbortList)	
 				% perform operation
 		end;
 		
