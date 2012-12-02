@@ -1,6 +1,6 @@
 -module(adb_db).
 
--export([start/0, stop/0, snapshot/0, snapshot/1, fail/1, recover/1, rl_acquire/2, wl_acquire/2, release/2]).
+-export([start/0, stop/0, snapshot/0, snapshot/1, fail/1, recover/1, rl_acquire/2, wl_acquire/2, release/2, status/1]).
 
 start() ->
 	RLockTableId = ets:new(rlock, [set, public]),
@@ -44,8 +44,11 @@ fail(SiteIdx) ->
 %% Function: recover() -> {ok, Time}
 %%--------------------------------------------------------------------    
 recover(SiteIdx) ->
-   rpc(getId(SiteIdx), {fail, SiteIdx}).
+   rpc(getId(SiteIdx), {recover, SiteIdx}).
    
+status(SiteIdx) ->
+   rpc(getId(SiteIdx), {status}).
+      
 %%====================================================================
 %% Internal functions
 %%====================================================================
