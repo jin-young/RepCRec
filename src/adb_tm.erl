@@ -57,8 +57,15 @@ whoOlder(T1, T2, List) ->
 			whoOlder(T1, T2, Tail)
 	end.
 
-% abort function
-% clean up function
+%cleanUp(Tid, AgeList, ROList, WaitList, AccessList, AbortList) ->
+	% release lock -> Tid and ValId that Tid hold from AccessList
+	% remove Tid from every list
+	% add Tid to abort list
+	% new operation from WaitList ask JY
+	% remove Tid and its snapshot from ROList
+%	loop(lists:delete(Tid,AgeList), ROList, WaitList, AccessList, lists:append(AbortList, [Tid]))
+	
+
 isMember(Tid, List) ->
 	case List of
 			[] ->
@@ -70,13 +77,82 @@ isMember(Tid, List) ->
 						true;
 					[{Tid,_}] ->
 						true;
-					[{Tid}] ->
+					[Tid] ->
 						true;
 					_ ->
 						isMember(Tid, Tail)
 				end
 	end.				
 
+deleteElement(Tid, List, TmpList) ->
+	case List of
+			[] ->
+				TmpList;
+			[Head|Tail] -> 
+				[Operation|Detail]= Head,
+				case Detail of 
+					[{Tid,_,_}] -> 
+						deleteElement(Tid, lists:delete(Head, List), TmpList);
+					[{Tid,_}] ->
+						deleteElement(Tid, lists:delete(Head, List), TmpList);
+					[Tid] ->
+						deleteElement(Tid, lists:delete(Head, List), TmpList);
+					_ ->
+						deleteElement(Tid, Tail, lists:append(TmpList,[Head]))
+				end
+	end.				
+
+checkWaitList(AccessList, WaitList, NewWaitList) ->
+	case WaitList of
+		[] ->
+			lists:append([NewAccessList],[NewWaitList]);
+		[Head|Tail] ->
+			case Head of
+				[{w,_}] ->
+					[{w,{Tid, ValId , Value }}] = Head,
+					case db:wl_acquire(Tid, ValId) of  
+							{false, THoldLock} -> 
+								checkWaitList(AccessList, Tail, lists:append(NewWaitList, [Head]));
+							true ->
+								io:format("~s performed~n", [Tid]),
+								% perform operation
+								checkWaitList(lists:append(AccessList, [Head]), Tail, deleteElement(Tid,WaitList, []))
+						end;
+				[{r,_}] ->
+					[{r,{Tid, ValId}}] = Head,
+					case db:rl_acquire(Tid, ValId) of  
+							{false, THoldLock} -> 
+								checkWaitList(AccessList, Tail, lists:append(NewWaitList, [Head]));
+							true ->
+								io:format("~s performed~n", [Tid]),
+								% perform operation
+								checkWaitList(lists:append(AccessList, [Head]), Tail, deleteElement(Tid,WaitList, []))
+						end;
+				[{endT, _}] -> 		
+					[{endT,Tid}] = Head,
+					case isMember(Tid, NewWaitList) of
+							true->
+								checkWaitList(AccessList, Tail, NewWaitList)
+							false->
+								%commit and cleanup;						
+					end
+					
+			end
+	end.
+
+abort(Tid, AgeList, ROList, WaitList, AccessList, AbortList) ->
+	% release lock -> Tid and ValId that Tid hold from AccessList
+	% remove Tid from every list
+	% add Tid to abort list
+	% new operation from WaitList ask JYdd
+	release(Tid, ValId),
+	
+	
+	NewWaitList = deleteElement(Tid,WaitList,[]),
+	NewAccessList = deleteElement(Tid, AccessList,[]),
+	[NewAccessList2|NewWaitList2] = checkWaitList(NewAccessList, NewWaitList, []),
+	loop(lists:delete(Tid,AgeList), ROList, NewWaitList2, NewAccessList2, lists:append(AbortList, [Tid])).
+	
 
 loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
     receive
@@ -95,7 +171,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 				false ->
 					case isMember(Tid, WaitList) of
 						true->
-							loop(AgeList, ROList, lists:append(WaitList,[{endT, Tid}]), AccessList, AbortList); 
+							loop(AgeList, ROList, lists:append(WaitList,[[{endT, Tid}]]), AccessList, AbortList); 
 						false->
 							%commit and cleanup;
 							loop(AgeList, ROList, WaitList, AccessList, AbortList)
@@ -115,14 +191,16 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 				 case whoOlder(THoldLock, Tid, AgeList) =:= Tid of
 					true ->
 						 % keep in the waitlist
-						 loop(AgeList, ROList, lists:append(WaitList,[{Tid, ValId, Value}]), AccessList, AbortList);
+	 					% we have to check the conflict in the waitlist as well
+						 
+						 loop(AgeList, ROList, lists:append(WaitList,[[w, {Tid, ValId, Value}]]), AccessList, AbortList);
 					false ->
 						% abort the transaction
-						loop(AgeList, ROList, WaitList, AccessList, lists:append(AbortList, [Tid]))
+						abort(Tid,AgeList, ROList, WaitList, AccessList, AbortList)
 				 end;
 			true ->
 				io:format("~s performed~n", [Tid]),
-				loop(AgeList,ROList, WaitList, list:append(AccessList, [w, {Tid, ValId, Value}]), AbortList)	
+				loop(AgeList,ROList, WaitList, list:append(AccessList, [[w, {Tid, ValId, Value}]]), AbortList)	
 				% perform operation
 		end;
 		%loop(AgeList, WaitList, lists:append(WriteLock, addWriteLock(Tid, ValId, WriteLock)), ReadLock, AccessList);
@@ -139,14 +217,15 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 				 case whoOlder(THoldLock, Tid, AgeList) =:= Tid of
 					true ->
 						 % keep in the waitlist
-						 loop(AgeList,ROList, lists:append(WaitList,[{Tid, ValId}]),  AccessList, AbortList);
+						% we have to check the conflict in the waitlist as well	
+						 loop(AgeList,ROList, lists:append(WaitList,[[r, {Tid, ValId}]]),  AccessList, AbortList);
 					false ->
 						% abort the transaction
 						loop(AgeList,ROList, WaitList,  AccessList, lists:append(AbortList, [Tid]))
 				end;
 			true ->
 				io:format("~s performed~n", [Tid]),
-				loop(AgeList,ROList, WaitList,lists:append(AccessList,[r, {Tid}]), AbortList)	
+				loop(AgeList,ROList, WaitList,lists:append(AccessList,[[r, {Tid}]]), AbortList)	
 				% perform operation
 		end;
 		
