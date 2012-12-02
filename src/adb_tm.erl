@@ -5,7 +5,7 @@
 
 start() ->
      register(adb_tm, spawn(fun() ->
-				     loop(AgeList=[], WaitList=[], WriteLock=[], ReadLock=[], AccessList=[], AbortList=[]) end)).
+				     loop(AgeList=[], WaitList=[], AccessList=[], AbortList=[]) end)).
 beginT(Tid) ->
 	rpc({beginT, Tid}).
 		
@@ -58,39 +58,40 @@ whoOlder(T1, T2, List) ->
 	end.
 
 
-loop(AgeList, WaitList, WriteLock, ReadLock, AccessList, AbortList) ->
+loop(AgeList, WaitList, AccessList, AbortList) ->
     receive
 	{From, {beginT, TransId}} ->
 		From ! {adb_tm, TransId},
 	    %if lookupT(TransId) == undefined ->
 		    %NewTransId = spawn(fun() -> adb_tran:start()), registerT(newTransId), From ! {ok};
 		%io:format("~s~n", [AgeList]),
-		loop(lists:append(AgeList,[TransId]), WaitList, WriteLock, ReadLock, AccessList, AbortList);
+		loop(lists:append(AgeList,[TransId]), WaitList, AccessList, AbortList);
 	
 	{From, {endT, Tid}} ->
 		From ! {adb_tm, Tid},
-	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
+	    loop(AgeList, WaitList, AccessList, AbortList);
 		
 	{From, {w, {Tid, ValId, Value}}} -> 
 		From ! {adb_tm, {Tid, ValId, Value}},
-		WriteLockExist = fun(X, T) -> (fun({T,Xtmp}) -> Xtmp =:= X end) end,
-		case lists:member(true, lists:map(WriteLockExist(ValId), WriteLock)) of
-			true ->
+		%WriteLockExist = fun(X, T) -> (fun({T,Xtmp}) -> Xtmp =:= X end) end,
+		%case lists:member(true, lists:map(WriteLockExist(ValId), WriteLock)) of
+		case db:wl_acquire() of  
+			{false, THoldLock} ->
 				io:format("~s put in to WaitList or abort~n", [Tid]),
 				% compare age to WaitList or holding lock transaction
-				[{THoldLock, ValId}] = lists:filter(WriteLockExist(ValId), WriteLock),
+				%[{THoldLock, ValId}] = lists:filter(WriteLockExist(ValId), WriteLock),
 				 
 				 case whoOlder(THoldLock, Tid, AgeList) =:= Tid of
 					true ->
 						 % keep in the waitlist
-						 loop(AgeList, lists:append(WaitList,[{Tid, ValId, Value}]), WriteLock, ReadLock, AccessList, AbortList)
+						 loop(AgeList, lists:append(WaitList,[{Tid, ValId, Value}]), AccessList, AbortList);
 					false ->
 						% abort the transaction
-						loop(AgeList, WaitList, WriteLock, ReadLock, AccessList, lists:append(AbortList, [Tid]))
-				end.
-			false ->
+						loop(AgeList, WaitList, AccessList, lists:append(AbortList, [Tid]))
+				 end;
+			true ->
 				io:format("~s performed~n", [Tid]),
-				loop(AgeList, WaitList, lists:append(WriteLock,[{Tid, ValId}]), ReadLock, AccessList, AbortList)	
+				loop(AgeList, WaitList, AccessList, AbortList)	
 				% perform operation
 		end;
 		%loop(AgeList, WaitList, lists:append(WriteLock, addWriteLock(Tid, ValId, WriteLock)), ReadLock, AccessList);
@@ -98,29 +99,48 @@ loop(AgeList, WaitList, WriteLock, ReadLock, AccessList, AbortList) ->
 	{From, {r, {Tid, ValId}}} ->
 		From ! {adb_tm, {Tid, ValId}},
 	    % read operation
+		case db:rl_acquire() of  
+			{false, THoldLock} ->
+				io:format("~s put in to WaitList or abort~n", [Tid]),
+				% compare age to WaitList or holding lock transaction
+				%[{THoldLock, ValId}] = lists:filter(WriteLockExist(ValId), WriteLock),
+				 
+				 case whoOlder(THoldLock, Tid, AgeList) =:= Tid of
+					true ->
+						 % keep in the waitlist
+						 loop(AgeList, lists:append(WaitList,[{Tid, ValId}]),  AccessList, AbortList);
+					false ->
+						% abort the transaction
+						loop(AgeList, WaitList,  AccessList, lists:append(AbortList, [Tid]))
+				end;
+			true ->
+				io:format("~s performed~n", [Tid]),
+				loop(AgeList, WaitList, AccessList, AbortList)	
+				% perform operation
+		end;
 		
-		loop(AgeList, WaitList, WriteLock, ReadLock, AccessList, AbortList);
+		%loop(AgeList, WaitList, WriteLock, ReadLock, AccessList, AbortList);
 	
 	{From, {beginRO, Tid}} ->
 		From ! {adb_tm, Tid},
 		% create snapshot isolation
-	    loop(lists:append(AgeList,[Tid]), WaitList, WriteLock, ReadLock, AccessList, AbortList);
+	    loop(lists:append(AgeList,[Tid]), WaitList, AccessList, AbortList);
 	
 	{From, {dump}} ->
 		From ! {adb_tm, dump},
-	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList, AbortList);
+	    loop(AgeList, WaitList, AccessList, AbortList);
 	
 	{From, {dump, Sid}} ->
 		From ! {adb_tm, Sid},
-	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList, AbortList);
+	    loop(AgeList, WaitList, AccessList, AbortList);
     
 	{From, {fail, Sid}} ->
 		% signal fail to site sid
 		From ! {adb_tm, Sid},
-	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList, AbortList);
+	    loop(AgeList, WaitList, AccessList, AbortList);
 	
 	{From, {recover, Sid}} ->
 		From ! {adb_tm, Sid},
 		% signal recover to site sid
-	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList, AbortList);
+	    loop(AgeList, WaitList, AccessList, AbortList)
     end.
