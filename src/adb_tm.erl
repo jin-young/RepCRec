@@ -71,9 +71,9 @@ loop(AgeList, WaitList, WriteLock, ReadLock, AccessList, AbortList) ->
 		From ! {adb_tm, Tid},
 	    loop(AgeList, WaitList, WriteLock, ReadLock, AccessList);
 		
-	{From, {w, {Tid, ValId, Value}}} ->
+	{From, {w, {Tid, ValId, Value}}} -> 
 		From ! {adb_tm, {Tid, ValId, Value}},
-		WriteLockExist = fun(X) -> (fun({T,Xtmp}) -> Xtmp =:= X end) end,
+		WriteLockExist = fun(X, T) -> (fun({T,Xtmp}) -> Xtmp =:= X end) end,
 		case lists:member(true, lists:map(WriteLockExist(ValId), WriteLock)) of
 			true ->
 				io:format("~s put in to WaitList or abort~n", [Tid]),
@@ -86,7 +86,7 @@ loop(AgeList, WaitList, WriteLock, ReadLock, AccessList, AbortList) ->
 						 loop(AgeList, lists:append(WaitList,[{Tid, ValId, Value}]), WriteLock, ReadLock, AccessList, AbortList)
 					false ->
 						% abort the transaction
-						loop(AgeList, WaitList, WriteLock, ReadLock, AccessList, AbortList)
+						loop(AgeList, WaitList, WriteLock, ReadLock, AccessList, lists:append(AbortList, [Tid]))
 				end.
 			false ->
 				io:format("~s performed~n", [Tid]),
