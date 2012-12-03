@@ -36,10 +36,26 @@ getter(VarId) ->
     findVariable(1, 10, VarId).
 
 %%--------------------------------------------------------------------
-%% Function: getter(VarId) -> {true, Value} | {false}
+%% Function: setter(VarId, NewValue) -> true | false
 %%--------------------------------------------------------------------    
 setter(VarId, NewValue) ->
-    ok.
+    case getter(VarId) of
+        {true, _} -> updateValue(1, 10, VarId, NewValue);
+        {false} -> false
+    end.
+    
+updateValue(CurrentIdx, EndIdx, VarId, NewValue) ->
+    case CurrentIdx =< EndIdx of
+		true -> 
+		    case status(CurrentIdx) of
+		        up ->
+		            rpc(getId(CurrentIdx), {setter, VarId, NewValue}),
+		            updateValue(CurrentIdx+1, EndIdx, VarId, NewValue);
+		        down ->
+		            updateValue(CurrentIdx+1, EndIdx, VarId, NewValue)
+		    end;
+		false -> true
+    end.
     
 %%--------------------------------------------------------------------
 %% Function: release(TransId, VarId) -> ok
@@ -177,7 +193,7 @@ createServer(TotalServer, SiteIdx) ->
 		true -> 
 		        Sid = getId(SiteIdx),
 		        io:format("create site ~p.~n", [Sid]),
-				register(Sid, spawn(fun() -> loop(SiteIdx, up) end)),
+				register(Sid, spawn(fun() -> loop(SiteIdx, up, 1) end)),
 				initialize(SiteIdx),
 				createServer(TotalServer, SiteIdx+1);
 		false -> ok
@@ -203,8 +219,18 @@ releaseAllLocks(TransId, Locks) ->
             end
     end.
     
-loop(SiteIdx, Status) ->
+loop(SiteIdx, Status, Vesion) ->
 	receive
+	    {From, {setter, VarId, NewValue}} ->
+	        TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
+            Ret = ets:lookup(TblId, VarId),
+            case Ret of
+	            [{VarId, _}] -> 
+	                ets:insert(TblId, {VarId, NewValue});
+	            [] -> []
+	        end,
+	        From ! {From, true},
+	        loop(SiteIdx, Status, Vesion+1);
 	    {From, {getter, VarId}} ->
 	        case Status of
 			    up ->
@@ -217,7 +243,7 @@ loop(SiteIdx, Status) ->
 			    down ->
 			        From ! {From, {false, down}}
 			end,
-			loop(SiteIdx, Status);
+			loop(SiteIdx, Status, Vesion);
 		{From, {dump}} ->
 			io:format("dump: ~p~n", [SiteIdx]),
 			case Status of
@@ -227,15 +253,15 @@ loop(SiteIdx, Status) ->
 			    down ->
 			        From ! {From, {SiteIdx, down}}
 			end,
-			loop(SiteIdx, Status);
+			loop(SiteIdx, Status, Vesion);
 		{From, {fail}} ->
 			io:format("Fail: ~p from ~p~n", [SiteIdx, From]),
 			From ! {From, true},
-			loop(SiteIdx, down);		
+			loop(SiteIdx, down, Vesion);		
 		{From, {recover}} ->
 			io:format("Recover: ~p~n", [SiteIdx]),
 			From ! {From, true},
-			loop(SiteIdx, up);
+			loop(SiteIdx, up, Vesion);
 		{From, {rl_acquire, TransId, VarId}} ->
 		    case ets:lookup(wlock, VarId) of
                 [] ->
@@ -265,7 +291,7 @@ loop(SiteIdx, Status) ->
 		                    From ! {From, {false, [Tid]}}
 		            end
             end,	                        
-			loop(SiteIdx, Status);
+			loop(SiteIdx, Status, Vesion);
 		{From, {wl_acquire, TransId, VarId}} ->
 			case ets:lookup(wlock, VarId) of
                 [] ->
@@ -301,7 +327,7 @@ loop(SiteIdx, Status) ->
 		                    From ! {From, {false, [Tid]}}
 		            end
             end,	                        
-			loop(SiteIdx, Status);		
+			loop(SiteIdx, Status, Vesion);		
 		{From, {release, TransId, VarId}} ->
 			io:format("Release: ~p~n", [VarId]),
 			case ets:lookup(wlock, VarId) of
@@ -323,7 +349,7 @@ loop(SiteIdx, Status) ->
                     end
             end,
 			From ! {From, true},
-			loop(SiteIdx, Status);
+			loop(SiteIdx, Status, Vesion);
 	    {From, {releaseAll, TransId}} ->
 	        io:format("Release all locks hold by ~p~n", [TransId]),
 	        ets:match_delete(wlock, {'$1', TransId}), 
@@ -331,11 +357,11 @@ loop(SiteIdx, Status) ->
 	        ReadLocks = ets:select(rlock, [{{'$1','$2'},[],['$$']}]),
 	        releaseAllLocks(TransId, ReadLocks),
 	        From ! {From, true},
-	        loop(SiteIdx, Status);
+	        loop(SiteIdx, Status, Vesion);
 		{From, {status}} ->
 			io:format("Status: ~p~n", [Status]),
 			From ! {From, Status},
-			loop(SiteIdx, Status);
+			loop(SiteIdx, Status, Vesion);
 		{From, {initialize}} ->
 		    io:format("Initialize site ~p~n", [SiteIdx]),
 		    TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
@@ -369,7 +395,7 @@ loop(SiteIdx, Status) ->
 	            _ -> []  
 		    end,
 		    From ! {From, ok},
-		    loop(SiteIdx, Status)
+		    loop(SiteIdx, Status, Vesion)
 	end.
 	
 %% Lock Senario 1
