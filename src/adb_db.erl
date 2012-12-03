@@ -1,6 +1,7 @@
 -module(adb_db).
 
--export([start/0, stop/0, dump/0, dump/1, snapshot/0, fail/1, recover/1, rl_acquire/2, wl_acquire/2, release/1, release/2, status/1, getter/1, setter/2]).
+-export([start/0, stop/0, dump/0, dump/1, snapshot/0, fail/1, recover/1, rl_acquire/2, wl_acquire/2, 
+         release/1, release/2, status/1, getter/1, setter/2, anySiteFail/0]).
 
 start() ->
     spawn(fun() -> createTable() end),
@@ -17,8 +18,17 @@ rl_acquire(TransId, VarId) ->
      
     
 wl_acquire(TransId, VarId) ->
-    rpc({wl_acquire, TransId, VarId}).
-   
+    case getter(VarId) of
+        {true, _} -> rpc({wl_acquire, TransId, VarId});
+        {false} -> {false, empty}
+    end.
+
+%%--------------------------------------------------------------------
+%% Function: anySiteFail() -> true | false
+%%-------------------------------------------------------------------- 
+anySiteFail() ->
+    checkAllSiteHealth(1,10).
+
 %%--------------------------------------------------------------------
 %% Function: getter(VarId) -> {true, Value} | {false}
 %%-------------------------------------------------------------------- 
@@ -99,6 +109,16 @@ findVariable(CurrentIdx, EndIdx, VarId) ->
 		            {true, Value} -> {true, Value}
 		        end;
 		false -> {false}
+    end.
+    
+checkAllSiteHealth(CurrentIdx, EndIdx) ->
+    case CurrentIdx =< EndIdx of
+		true -> 
+		        case status(CurrentIdx) of
+		            up -> checkAllSiteHealth(CurrentIdx+1, EndIdx);
+		            down -> true
+		        end;
+		false -> false
     end.
     
 collectSanpshotValues(Dump, TempTableId) ->
