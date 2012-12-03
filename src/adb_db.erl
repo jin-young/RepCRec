@@ -1,6 +1,6 @@
 -module(adb_db).
 
--export([start/0, stop/0, dump/0, dump/1, snapshot/0, fail/1, recover/1, rl_acquire/2, wl_acquire/2, 
+-export([start/0, stop/0, dump/0, dump/1, dumpValue/1, snapshot/0, fail/1, recover/1, rl_acquire/2, wl_acquire/2, 
          release/1, release/2, status/1, getter/1, setter/2, anySiteFail/0, version/1, getRecentlyUpdatedSite/4]).
 
 start() ->
@@ -76,13 +76,16 @@ dump(SiteIdx) ->
     rpc(getId(SiteIdx), {dump}).
     
 %%--------------------------------------------------------------------
-%% Function: snapshot() -> [{SiteId, up|down, [{VariableId, Value}]}]
+%% Function: dump() -> [{SiteId, up|down, [{VariableId, Value}]}]
 %%--------------------------------------------------------------------
 dump() ->
     collectValues(1, 10, []).
-    
+
+%%--------------------------------------------------------------------
+%% Function: dumpValue(VariableId) -> [VariableId, [{SiteId, Value}]]
+%%--------------------------------------------------------------------   
 dumpValue(ValId) ->
-    ok.
+    collectVariableFromEachSite(1, 10, ValId, []).
 	
 %%--------------------------------------------------------------------
 %% Function: fail(SiteIdx) -> true
@@ -130,6 +133,17 @@ findVariable(CurrentIdx, EndIdx, VarId) ->
 		false -> {false}
     end.
     
+collectVariableFromEachSite(CurrentIdx, EndIdx, VarId, CollectedValues) ->
+    case CurrentIdx =< EndIdx of
+		true -> 
+		        Ret = rpc(getId(CurrentIdx), {getter, VarId}),
+		        case Ret of
+		            {false, _} -> collectVariableFromEachSite(CurrentIdx+1, EndIdx, VarId, CollectedValues) ;
+		            {true, Value} -> collectVariableFromEachSite(CurrentIdx+1, EndIdx, VarId, lists:append(CollectedValues, [{CurrentIdx, Value}]))
+		        end;
+		false -> CollectedValues
+    end.
+    
 checkAllSiteHealth(CurrentIdx, EndIdx) ->
     case CurrentIdx =< EndIdx of
 		true -> 
@@ -168,6 +182,7 @@ collectValues(CurrentIdx, EndIdx, Values) ->
 createTable() ->
 	ets:new(rlock, [named_table, public, set]),
 	ets:new(wlock, [named_table, public, set]),
+	ets:new(transHandler, [named_table, public, set]),
 	receive
 	    _ -> []
 	end.
@@ -329,11 +344,11 @@ loop(SiteIdx, Status, Version) ->
 			                TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
 			                RecentValues = lists:filter(
                                 fun(X) -> 
-                                    {Vid, Val} = X, 
+                                    {Vid, _} = X, 
                                     case list_to_integer(hd(string:tokens(Vid,"x"))) rem 2 of
-                                        0 -> % even number
+                                        0 -> % even index variable
                                              true;
-                                        _ -> % odd number. do not copy
+                                        _ -> % odd index variable. do not copy
                                             false
                                     end
                                 end, Vals),
