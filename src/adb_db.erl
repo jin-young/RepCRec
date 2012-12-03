@@ -1,6 +1,6 @@
 -module(adb_db).
 
--export([start/0, stop/0, snapshot/0, snapshot/1, fail/1, recover/1, rl_acquire/2, wl_acquire/2, release/2, status/1, read/1]).
+-export([start/0, stop/0, dump/0, dump/1, snapshot/0, fail/1, recover/1, rl_acquire/2, wl_acquire/2, release/1, release/2, status/1, getter/1, setter/2, memberGuard/2]).
 
 start() ->
     spawn(fun() -> createTable() end),
@@ -15,25 +15,40 @@ rl_acquire(TransId, VarId) ->
 wl_acquire(TransId, VarId) ->
     rpc({wl_acquire, TransId, VarId}).
     
-read(VarId) ->
+getter(VarId) ->
+    ok.
+    
+setter(VarId, NewValue) ->
     ok.
     
 %%--------------------------------------------------------------------
-%% Function: release(VarId) -> ok
+%% Function: release(TransId, VarId) -> ok
 %%--------------------------------------------------------------------
 release(TransId, VarId) ->
     rpc({release, TransId, VarId}).   
+  
+%%--------------------------------------------------------------------
+%% Function: release(TransId) -> ok
+%%--------------------------------------------------------------------  
+release(TransId) ->
+    rpc({releaseAll, TransId}).       
 
 %%--------------------------------------------------------------------
-%% Function: snapshot(SiteId) -> {SiteId, up|down, [{VariableId, Value}]}
+%% Function: dump(SiteId) -> {SiteId, up|down, [{VariableId, Value}]}
 %%--------------------------------------------------------------------
-snapshot(SiteIdx) ->
-    rpc(getId(SiteIdx), {snapshot}).
+dump(SiteIdx) ->
+    rpc(getId(SiteIdx), {dump}).
+    
+%%--------------------------------------------------------------------
+%% Function: snapshot() -> [{VariableId, Value}]
+%%-------------------------------------------------------------------- 
+snapshot() ->
+    rpc({snapshot}).
     
 %%--------------------------------------------------------------------
 %% Function: snapshot() -> [{SiteId, up|down, [{VariableId, Value}]}]
 %%--------------------------------------------------------------------
-snapshot() ->
+dump() ->
     collectValues(1, 10, []).
 	
 %%--------------------------------------------------------------------
@@ -65,11 +80,11 @@ collectValues(CurrentIdx, EndIdx, Values) ->
     case CurrentIdx =< EndIdx of
 		true -> 
 		        case status(CurrentIdx) of
-		            up -> collectValues(CurrentIdx+1, EndIdx, lists:append(Values, [snapshot(CurrentIdx)]));
+		            up -> collectValues(CurrentIdx+1, EndIdx, lists:append(Values, [dump(CurrentIdx)]));
 		            down -> collectValues(CurrentIdx+1, EndIdx, lists:append(Values, [{CurrentIdx, down}]))
 		        end;
 		false -> Values
-    end.    
+    end.
     
 createTable() ->
 	ets:new(rlock, [named_table, public, set]),
@@ -108,10 +123,30 @@ createServer(TotalServer, SiteIdx) ->
 		false -> ok
     end.
     
+releaseAllLocks(TransId, Locks) ->
+    case Locks of
+        [] -> ok;
+        [[Vid, TransList]|TL] ->
+            case lists:member(TransId, TransList) of
+                true ->
+                    NewTids = lists:delete(TransId, TransList),
+                    io:format("Released read lock on ~p hold by ~p~n", [Vid, TransId]),
+                    case NewTids of 
+                        [] ->
+                            ets:delete(rlock, Vid);
+                        _ ->
+                            ets:insert(rlock, {Vid, NewTids})
+                    end,
+                    releaseAllLocks(TransId, TL);
+                false ->
+                    releaseAllLocks(TransId, TL)
+            end
+    end.
+    
 loop(SiteIdx, Status) ->
 	receive
-		{From, {snapshot}} ->
-			io:format("Snapshot: ~p~n", [SiteIdx]),
+		{From, {dump}} ->
+			io:format("dump: ~p~n", [SiteIdx]),
 			TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
 			From ! {From, {SiteIdx, up, ets:tab2list(TblId)}},
 			loop(SiteIdx, Status);
@@ -211,6 +246,13 @@ loop(SiteIdx, Status) ->
             end,
 			From ! {From, true},
 			loop(SiteIdx, Status);
+	    {From, {releaseAll, TransId}} ->
+	        io:format("Release all locks hold by ~p~n", [TransId]),
+	        ets:match_delete(wlock, {'$1', TransId}), 
+	        ReadLocks = ets:select(rlock, [{{'$1','$2'},[],['$$']}]),
+	        releaseAllLocks(TransId, ReadLocks),
+	        From ! {From, true},
+	        loop(SiteIdx, Status);
 		{From, {status}} ->
 			io:format("Status: ~p~n", [Status]),
 			From ! {From, Status},
@@ -252,32 +294,34 @@ loop(SiteIdx, Status) ->
 	end.
 	
 %% Lock Senario 1
-%% adb_db:rl_acquire("T1", x1).  => {true,["T1"]}
-%% adb_db:release("T1", x1).  => true
-%% adb_db:rl_acquire("T2", x1).  => {true,["T2"]}
-%% adb_db:wl_acquire("T2", x1).  => {true,["T2"]}
-%% adb_db:wl_acquire("T1", x1).  => {false,["T2"]}
-%% adb_db:release("T2", x1).     => true
-%% adb_db:wl_acquire("T1", x1).  => {true,["T1"]}
-%% adb_db:rl_acquire("T1", x1).  => {true,["T1"]}
-%% adb_db:rl_acquire("T1", x1).  => {false,["T1"]}
+%% adb_db:rl_acquire("T1", "x1").  => {true,["T1"]}
+%% adb_db:release("T1", "x1").  => true
+%% adb_db:rl_acquire("T2", "x1").  => {true,["T2"]}
+%% adb_db:wl_acquire("T2", "x1").  => {true,["T2"]}
+%% adb_db:wl_acquire("T1", "x1").  => {false,["T2"]}
+%% adb_db:release("T2", "x1").     => true
+%% adb_db:wl_acquire("T1", "x1").  => {true,["T1"]}
+%% adb_db:rl_acquire("T1", "x1").  => {true,["T1"]}
+%% adb_db:rl_acquire("T1", "x1").  => {false,["T1"]}
 
 %% Lock Senario 2
-%% adb_db:rl_acquire("T1",x1).
-%% adb_db:rl_acquire("T2",x1).
-%% adb_db:wl_acquire("T3",x1). => {false,["T1","T2"]}
-%% adb_db:wl_acquire("T2",x1). => {false,["T1","T2"]}
-%% adb_db:release("T1",x1).
-%% adb_db:release("T2",x1).
-%% adb_db:wl_acquire("T3",x1). => {true,["T3"]}
+%% adb_db:rl_acquire("T1", "x1").
+%% adb_db:rl_acquire("T2", "x1").
+%% adb_db:wl_acquire("T3", "x1"). => {false,["T1","T2"]}
+%% adb_db:wl_acquire("T2", "x1"). => {false,["T1","T2"]}
+%% adb_db:release("T1", "x1").
+%% adb_db:release("T2", "x1").
+%% adb_db:wl_acquire("T3", "x1"). => {true,["T3"]}
 
+%% snapshot senario 
+%% adb_db:snapshot(). => 
 
-%% snapshot Senario 1
+%% dump Senario 1
 %% adb_db:fail(3).
 %% adb_db:fail(4).
 %% adb_db:fail(5).
 %% adb_db:fail(6).
-%% adb_db:snapshot(). =>
+%% adb_db:dump(). =>
 %% [
 %%  {1,up, [{"x16",160}, {"x6",60}, {"x20",200}, {"x18",180}, {"x4",40}, {"x14",140}, {"x12",120}, {"x8",80}, {"x2",20}, {"x10",100}]},
 %%  {2,up, [{"x11",110}, {"x16",160}, {"x6",60}, {"x20",200}, {"x18",180}, {"x4",40}, {"x1",10}, 
@@ -290,7 +334,7 @@ loop(SiteIdx, Status) ->
 %%  ....
 %% ]
 
-%% snapshot Senario 2
-%% adb_db:snapshot(3). =>
+%% dump Senario 2
+%% adb_db:dump(3). =>
 %% {3,up, [{"x16",160}, {"x6",60}, {"x20",200}, {"x18",180}, {"x4",40}, {"x14",140}, {"x12",120}, {"x8",80}, {"x2",20}, {"x10",100}]}
 
