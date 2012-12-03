@@ -1,7 +1,7 @@
 -module(adb_db).
 
 -export([start/0, stop/0, dump/0, dump/1, snapshot/0, fail/1, recover/1, rl_acquire/2, wl_acquire/2, 
-         release/1, release/2, status/1, getter/1, setter/2, anySiteFail/0]).
+         release/1, release/2, status/1, getter/1, setter/2, anySiteFail/0, version/1, getRecentlyUpdatedSite/4]).
 
 start() ->
     spawn(fun() -> createTable() end),
@@ -80,6 +80,9 @@ dump(SiteIdx) ->
 %%--------------------------------------------------------------------
 dump() ->
     collectValues(1, 10, []).
+    
+dumpValue(ValId) ->
+    ok.
 	
 %%--------------------------------------------------------------------
 %% Function: fail(SiteIdx) -> true
@@ -169,14 +172,6 @@ createTable() ->
 	    _ -> []
 	end.
 
-rpc(Sid, Q) ->
-	Caller = self(),
-    Sid ! {Caller, Q},
-    receive
-		{Caller, Reply} ->
-			Reply
-    end.
-    
 findUpSite(SiteId, BeginId) ->
     case status(SiteId) of
         up ->
@@ -190,6 +185,34 @@ findUpSite(SiteId, BeginId) ->
             end
     end.
     
+getRecentlyUpdatedSite(CurrentIdx, EndIdx, HeightSite, HeigestVersion) ->
+    case CurrentIdx =< EndIdx of
+		true -> 
+		        Ret = version(CurrentIdx),
+		        case Ret of
+		            {up, V} -> 
+		                      case V < HeigestVersion of
+		                        true ->
+		                            getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, HeightSite, HeigestVersion);
+		                        false ->
+		                            getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, CurrentIdx, V)
+		                      end;
+		            _ -> getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, HeightSite, HeigestVersion)
+		        end;
+		false -> {HeightSite, HeigestVersion}
+    end.
+    
+version(SiteIdx) ->
+    rpc(getId(SiteIdx), {version}).
+    
+rpc(Sid, Q) ->
+	Caller = self(),
+    Sid ! {Caller, Q},
+    receive
+		{Caller, Reply} ->
+			Reply
+    end.
+        
 rpc(Q) ->
     Caller = self(),
     {A1,A2,A3} = now(),
@@ -241,8 +264,16 @@ releaseAllLocks(TransId, Locks) ->
             end
     end.
     
-loop(SiteIdx, Status, Vesion) ->
+loop(SiteIdx, Status, Version) ->
 	receive
+	    {From, {version}} ->
+	        case Status of
+	            up ->
+	                From ! {From, {up, Version}};
+	            down ->
+	                From ! {From, {down}}
+	        end,
+	        loop(SiteIdx, Status, Version);
 	    {From, {setter, VarId, NewValue}} ->
 	        TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
             Ret = ets:lookup(TblId, VarId),
@@ -252,7 +283,7 @@ loop(SiteIdx, Status, Vesion) ->
 	            [] -> []
 	        end,
 	        From ! {From, true},
-	        loop(SiteIdx, Status, Vesion+1);
+	        loop(SiteIdx, Status, Version+1);
 	    {From, {getter, VarId}} ->
 	        case Status of
 			    up ->
@@ -265,7 +296,7 @@ loop(SiteIdx, Status, Vesion) ->
 			    down ->
 			        From ! {From, {false, down}}
 			end,
-			loop(SiteIdx, Status, Vesion);
+			loop(SiteIdx, Status, Version);
 		{From, {dump}} ->
 			io:format("dump: ~p~n", [SiteIdx]),
 			case Status of
@@ -275,15 +306,44 @@ loop(SiteIdx, Status, Vesion) ->
 			    down ->
 			        From ! {From, {SiteIdx, down}}
 			end,
-			loop(SiteIdx, Status, Vesion);
+			loop(SiteIdx, Status, Version);
 		{From, {fail}} ->
-			io:format("Fail: ~p from ~p~n", [SiteIdx, From]),
+		    case Status of
+		        down ->
+		            io:format("Site ~p is alredy down:~n", [SiteIdx]);
+		        up ->
+                    io:format("Fail: ~p from ~p~n", [SiteIdx, From])
+            end,
 			From ! {From, true},
-			loop(SiteIdx, down, Vesion);		
+			loop(SiteIdx, down, Version);		
 		{From, {recover}} ->
-			io:format("Recover: ~p~n", [SiteIdx]),
+		    {LatestSiteId, LatestVersion} = getRecentlyUpdatedSite(1, 10, 1, 1),
+		    case Status of
+		        down ->
+			        io:format("Recover: ~p~n", [SiteIdx]),
+			        case LatestSiteId =:= SiteIdx of
+			            true -> [];
+			            false -> 
+			                {_,up,Vals} = dump(LatestSiteId),
+			                io:format("Start synchronization ~p with ~p~n", [SiteIdx, LatestSiteId]),
+			                TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
+			                RecentValues = lists:filter(
+                                fun(X) -> 
+                                    {Vid, Val} = X, 
+                                    case list_to_integer(hd(string:tokens(Vid,"x"))) rem 2 of
+                                        0 -> % even number
+                                             true;
+                                        _ -> % odd number. do not copy
+                                            false
+                                    end
+                                end, Vals),
+                            ets:insert(TblId, RecentValues)
+			        end;
+			    up ->
+			        io:format("Site ~p is alredy up:~n", [SiteIdx])
+			end,
 			From ! {From, true},
-			loop(SiteIdx, up, Vesion);
+			loop(SiteIdx, up, LatestVersion);
 		{From, {rl_acquire, TransId, VarId}} ->
 		    io:format("Handled by ~p~n", [SiteIdx]),
 		    case ets:lookup(wlock, VarId) of
@@ -314,7 +374,7 @@ loop(SiteIdx, Status, Vesion) ->
 		                    From ! {From, {false, [Tid]}}
 		            end
             end,	                        
-			loop(SiteIdx, Status, Vesion);
+			loop(SiteIdx, Status, Version);
 		{From, {wl_acquire, TransId, VarId}} ->
 		    io:format("Handled by ~p~n", [SiteIdx]),
 			case ets:lookup(wlock, VarId) of
@@ -351,7 +411,7 @@ loop(SiteIdx, Status, Vesion) ->
 		                    From ! {From, {false, [Tid]}}
 		            end
             end,	                        
-			loop(SiteIdx, Status, Vesion);		
+			loop(SiteIdx, Status, Version);		
 		{From, {release, TransId, VarId}} ->
 		    io:format("Handled by ~p~n", [SiteIdx]),
 			io:format("Release: ~p~n", [VarId]),
@@ -374,7 +434,7 @@ loop(SiteIdx, Status, Vesion) ->
                     end
             end,
 			From ! {From, true},
-			loop(SiteIdx, Status, Vesion);
+			loop(SiteIdx, Status, Version);
 	    {From, {releaseAll, TransId}} ->
 	        io:format("Release all locks hold by ~p~n", [TransId]),
 	        ets:match_delete(wlock, {'$1', TransId}), 
@@ -382,11 +442,11 @@ loop(SiteIdx, Status, Vesion) ->
 	        ReadLocks = ets:select(rlock, [{{'$1','$2'},[],['$$']}]),
 	        releaseAllLocks(TransId, ReadLocks),
 	        From ! {From, true},
-	        loop(SiteIdx, Status, Vesion);
+	        loop(SiteIdx, Status, Version);
 		{From, {status}} ->
 			io:format("Status: ~p~n", [Status]),
 			From ! {From, Status},
-			loop(SiteIdx, Status, Vesion);
+			loop(SiteIdx, Status, Version);
 		{From, {initialize}} ->
 		    io:format("Initialize site ~p~n", [SiteIdx]),
 		    TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
@@ -420,7 +480,7 @@ loop(SiteIdx, Status, Vesion) ->
 	            _ -> []  
 		    end,
 		    From ! {From, ok},
-		    loop(SiteIdx, Status, Vesion)
+		    loop(SiteIdx, Status, Version)
 	end.
 	
 %% Lock Senario 1
