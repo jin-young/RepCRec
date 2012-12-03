@@ -1,6 +1,6 @@
 -module(adb_db).
 
--export([start/0, stop/0, dump/0, dump/1, snapshot/0, fail/1, recover/1, rl_acquire/2, wl_acquire/2, release/1, release/2, status/1, getter/1, setter/2, memberGuard/2]).
+-export([start/0, stop/0, dump/0, dump/1, snapshot/0, fail/1, recover/1, rl_acquire/2, wl_acquire/2, release/1, release/2, status/1, getter/1, setter/2]).
 
 start() ->
     spawn(fun() -> createTable() end),
@@ -312,6 +312,10 @@ loop(SiteIdx, Status) ->
 %% adb_db:release("T1", "x1").
 %% adb_db:release("T2", "x1").
 %% adb_db:wl_acquire("T3", "x1"). => {true,["T3"]}
+
+%% Release Senario 1
+%% adb_db:release("T1", "x1"). => true
+%% adb_db:release("T1"). => true
 
 %% snapshot senario 
 %% adb_db:snapshot(). => 
