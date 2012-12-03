@@ -14,9 +14,12 @@ rl_acquire(TransId, VarId) ->
     
 wl_acquire(TransId, VarId) ->
     rpc({wl_acquire, TransId, VarId}).
-    
+   
+%%--------------------------------------------------------------------
+%% Function: getter(VarId) -> {true, Value} | {false}
+%%-------------------------------------------------------------------- 
 getter(VarId) ->
-    ok.
+    findVariable(1, 10, VarId).
     
 setter(VarId, NewValue) ->
     ok.
@@ -79,6 +82,17 @@ snapshot() ->
 
 initialize(SiteIdx) ->
     rpc(getId(SiteIdx), {initialize}).
+    
+findVariable(CurrentIdx, EndIdx, VarId) ->
+    case CurrentIdx =< EndIdx of
+		true -> 
+		        Ret = rpc(getId(CurrentIdx), {getter, VarId}),
+		        case Ret of
+		            {false, _} -> findVariable(CurrentIdx+1, EndIdx, VarId) ;
+		            {true, Value} -> {true, Value}
+		        end;
+		false -> {false}
+    end.
     
 collectSanpshotValues(Dump, TempTableId) ->
     case Dump of
@@ -164,14 +178,19 @@ releaseAllLocks(TransId, Locks) ->
     
 loop(SiteIdx, Status) ->
 	receive
-	    %{From, {snapshot}} ->
-	    %    io:format("snapshot: ~p~n", [SiteIdx]),
-	    %    TblName = list_to_atom(string:concat("temptbl", integer_to_list(SiteIdx))),
-	    %    ets:new(TblName, [named_table, set]),
-	    %    TblName = generateSnapshot(1, 10, TblName),
-	    %    From ! {From, ets:tab2list(TblName)},
-	    %    ets:delete(TblName),
-	    %    loop(SiteIdx, Status);
+	    {From, {getter, VarId}} ->
+	        case Status of
+			    up ->
+			        TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
+			        Ret = ets:lookup(TblId, VarId),
+			        case Ret of
+			            [{_, Value}] -> From ! {From, {true, Value}};
+			            [] -> From ! {From, {false, noExist}}
+			        end;
+			    down ->
+			        From ! {From, {false, down}}
+			end,
+			loop(SiteIdx, Status);
 		{From, {dump}} ->
 			io:format("dump: ~p~n", [SiteIdx]),
 			case Status of
@@ -351,7 +370,7 @@ loop(SiteIdx, Status) ->
 %% adb_db:release("T1"). => true
 
 %% snapshot senario 
-%% adb_db:snapshot(). => 
+%% adb_db:snapshot(). => [{"x16",160}, {"x6",60}, {"x20",200}, {"x18",180}....]
 
 %% dump Senario 1
 %% adb_db:fail(3).
