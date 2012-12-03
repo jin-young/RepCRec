@@ -40,12 +40,6 @@ dump(SiteIdx) ->
     rpc(getId(SiteIdx), {dump}).
     
 %%--------------------------------------------------------------------
-%% Function: snapshot() -> [{VariableId, Value}]
-%%-------------------------------------------------------------------- 
-snapshot() ->
-    rpc({snapshot}).
-    
-%%--------------------------------------------------------------------
 %% Function: snapshot() -> [{SiteId, up|down, [{VariableId, Value}]}]
 %%--------------------------------------------------------------------
 dump() ->
@@ -68,6 +62,16 @@ recover(SiteIdx) ->
 %%--------------------------------------------------------------------    
 status(SiteIdx) ->
    rpc(getId(SiteIdx), {status}).
+   
+%%--------------------------------------------------------------------
+%% Function: snapshot() -> [{VariableId, Value}]
+%%-------------------------------------------------------------------- 
+snapshot() ->
+    ets:new(temptbl, [named_table, set, public]),
+    collectSanpshotValues(dump(), temptbl),
+    RetVal = ets:tab2list(temptbl),
+    ets:delete(temptbl),
+    RetVal.
       
 %%====================================================================
 %% Internal functions
@@ -75,6 +79,21 @@ status(SiteIdx) ->
 
 initialize(SiteIdx) ->
     rpc(getId(SiteIdx), {initialize}).
+    
+collectSanpshotValues(Dump, TempTableId) ->
+    case Dump of
+        [SiteDump|TailList] ->
+            case SiteDump of
+                {_, up, Vals} -> 
+                    case Vals of
+                        [H|TL] ->
+                            ets:insert(TempTableId, [H|TL])
+                    end;
+                {_, down} -> []
+            end,
+            collectSanpshotValues(TailList, TempTableId);
+        [] -> TempTableId
+    end.
     
 collectValues(CurrentIdx, EndIdx, Values) ->
     case CurrentIdx =< EndIdx of
@@ -145,10 +164,23 @@ releaseAllLocks(TransId, Locks) ->
     
 loop(SiteIdx, Status) ->
 	receive
+	    %{From, {snapshot}} ->
+	    %    io:format("snapshot: ~p~n", [SiteIdx]),
+	    %    TblName = list_to_atom(string:concat("temptbl", integer_to_list(SiteIdx))),
+	    %    ets:new(TblName, [named_table, set]),
+	    %    TblName = generateSnapshot(1, 10, TblName),
+	    %    From ! {From, ets:tab2list(TblName)},
+	    %    ets:delete(TblName),
+	    %    loop(SiteIdx, Status);
 		{From, {dump}} ->
 			io:format("dump: ~p~n", [SiteIdx]),
-			TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
-			From ! {From, {SiteIdx, up, ets:tab2list(TblId)}},
+			case Status of
+			    up ->
+			        TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
+			        From ! {From, {SiteIdx, up, ets:tab2list(TblId)}};
+			    down ->
+			        From ! {From, {SiteIdx, down}}
+			end,
 			loop(SiteIdx, Status);
 		{From, {fail}} ->
 			io:format("Fail: ~p from ~p~n", [SiteIdx, From]),
@@ -249,6 +281,7 @@ loop(SiteIdx, Status) ->
 	    {From, {releaseAll, TransId}} ->
 	        io:format("Release all locks hold by ~p~n", [TransId]),
 	        ets:match_delete(wlock, {'$1', TransId}), 
+	        io:format("All write lock hold by ~p have been released.~n", [TransId]),
 	        ReadLocks = ets:select(rlock, [{{'$1','$2'},[],['$$']}]),
 	        releaseAllLocks(TransId, ReadLocks),
 	        From ! {From, true},
