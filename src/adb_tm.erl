@@ -79,7 +79,7 @@ checkReadWaitListOlder(Tid, ValId, WaitList, AgeList) ->
 	end.	
 	
 	% If some transactions in WaitList can performed, do it!
-	checkWaitList(AccessList, WaitList, NewWaitList) ->
+checkWaitList(AccessList, WaitList, NewWaitList) ->
 		% io:format("~p~n", [NewWaitList]),
 		case WaitList of
 			[] ->
@@ -101,6 +101,8 @@ checkReadWaitListOlder(Tid, ValId, WaitList, AgeList) ->
 					[r,_] ->
 						[r,{Tid, ValId}] = Head,
 						% check readonly
+						
+	
 						case rpc:call(db@localhost, adb_db, rl_acquire,[Tid,ValId])  of  
 							{false, [THoldLock]} -> 
 								checkWaitList(AccessList, Tail, lists:append(NewWaitList, [Head]));
@@ -148,11 +150,105 @@ checkWriteWaitListOlder(Tid, ValId, WaitList, AgeList) ->
 						checkWriteWaitListOlder(Tid, ValId, Tail, AgeList)	
 				end
 	end.			
-	
 
+isReadOnly(Tid, ROList) ->
+	case ROList of 
+		[] ->
+			false;
+		[H | TL] ->
+			[Ttmp | Snapshot] = H,
+			if 
+				Ttmp =:= Tid ->	 
+					true;
+				true ->
+					isReadOnly(Tid, TL)
+			end
+	end.
 	
+	evenNum(ValId) ->
+		[Index] = string:tokens(atom_to_list(ValId),"x"),
+		{Id,_} = string:to_integer(Index),
+		if 
+			Id rem 2 =:= 0 ->
+				% even
+				{true};
+			true ->
+				% odd
+				if 
+					Id =:= 9 -> {false,10};
+					Id =:= 19 -> {false,10};
+					true -> {false,(Id + 1) rem 10} 
+				end
+		end.	
 
+readFromSnapshot(Tid, ValId, ROList) ->
+ 
+			[H | TL] = ROList,
+			[Ttmp | Snapshot] = H,
+			if 
+				Ttmp =:= Tid ->	 
+					Pred = fun(X) -> (fun({Xtmp,_}) -> Xtmp =:= X end) end,
+					case lists:filter(Pred(ValId), Snapshot) of
+						[] -> 
+							case rpc:call(db@localhost, adb_db, getter,[ValId]) of 
+								{true,Value} -> {true,Value}; 
+								{false} -> {false}
+							end;
+						[{ValId,Value}] -> {true,Value}
+					end;   
+				true ->
+					readFromSnapshot(Tid, ValId, TL)
+			end.
 	
+	
+			
+doReadOnly(ROList, List, NewList) ->
+	case List of
+			[] ->
+				NewList;
+			[Head|Tail] -> 
+				[Operation|Detail]= Head,
+				case Detail of 
+					[{Ttmp,ValId}] ->
+						case isReadOnly(Ttmp, ROList) of
+							true ->
+								% Perform Read-only + check site not fail
+								case evenNum(ValId) of
+									{true} ->
+										case rpc:call(db@localhost, adb_db, anySiteFail,[]) of 
+											true -> 
+												doReadOnly(ROList, Tail, lists:append(NewList, [Head]));
+											false -> 
+												case readFromSnapshot(Ttmp, ValId, ROList) of
+													{true,Value} -> 
+														doReadOnly(ROList, Tail, NewList);
+														% cal rpc to client to send value
+													{false} -> 
+														doReadOnly(ROList, Tail, lists:append(NewList, [Head]))
+												end	
+										end;
+									{false, Sid} ->	
+										case rpc:call(db@localhost, adb_db, status,[Sid]) of
+											up -> 
+												doReadOnly(ROList, Tail, lists:append(NewList, [Head]));
+											down ->
+												case readFromSnapshot(Ttmp, ValId, ROList) of
+													{true,Value} -> 
+														doReadOnly(ROList, Tail, NewList);
+														% cal rpc to client to send value
+													{false} -> 
+														doReadOnly(ROList, Tail, lists:append(NewList, [Head]))
+												end	
+										end
+								end;
+							false ->
+								doReadOnly(ROList, Tail, lists:append(NewList, [Head]))	
+						end;
+					 _ ->
+						doReadOnly(ROList, Tail, lists:append(NewList, [Head]))		
+				end
+	end.	
+		
 
 isMember(Tid, List) ->
 	%io:format("~s , ~p", [Tid, List]),
@@ -196,7 +292,7 @@ deleteElement(Tid, List, TmpList) ->
 			[] ->
 				TmpROList;
 			[H | TL] ->
-				[Ttmp | [Snapshot]] = H,
+				[Ttmp | Snapshot] = H,
 				if 
 					Ttmp =:= Tid ->	 
 						cleanUpRO(Tid, TL, TmpROList);
@@ -294,6 +390,8 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 					end
 			end;
 		%loop(AgeList,ROList, WaitList, AccessList, AbortList);
+		
+		
 	{From, {w, {Tid, ValId, Value}}} -> 
 		From ! {adb_tm, {Tid, ValId, Value}},
 		%WriteLockExist = fun(X, T) -> (fun({T,Xtmp}) -> Xtmp =:= X end) end,
@@ -316,6 +414,9 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 								% abort the transaction
 								abort(Tid,AgeList, ROList, WaitList, AccessList, AbortList)
 				 		end;
+					{false} ->
+						abort(Tid,AgeList, ROList, WaitList, AccessList, AbortList);
+						
 					{true,_} ->
 						io:format("~p performed write on ~p~n", [Tid, ValId]),
 						loop(AgeList,ROList, WaitList, lists:append([[w, {Tid, ValId, Value}]], AccessList ), AbortList)	
@@ -327,6 +428,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 	{From, {r, {Tid, ValId}}} ->
 		From ! {adb_tm, {Tid, ValId}},
 	    % read operation
+		
 		case lists:member(Tid,AbortList) of
 			true -> 
 				io:format("~p already aborted~n", [Tid]),
@@ -334,6 +436,11 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 			false ->
 				%io:format("~p~n", [rpc:call(db@localhost, adb_db, rl_acquire,[Tid,ValId])]),
 
+				% 1: read is from ReadOnly Transaction
+				% if site is fail -> in the waitList
+				% if recover call checkWaitList
+				% 2: read is from normal transaction, tracking from AccessList from that transaction
+				
 				case rpc:call(db@localhost, adb_db, rl_acquire,[Tid,ValId])  of  
 					{false, [THoldLock]} ->
 					% compare age to WaitList or holding lock transaction
@@ -349,6 +456,9 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 								% abort the transaction
 								abort(Tid,AgeList, ROList, WaitList, AccessList, AbortList)
 							end;
+					{false} ->
+						abort(Tid,AgeList, ROList, WaitList, AccessList, AbortList);
+						
 					{true,_} ->
 						io:format("~p performed read on ~p~n", [Tid, ValId]),
 						loop(AgeList,ROList, WaitList,lists:append([[r, {Tid}]],AccessList), AbortList)	
@@ -371,11 +481,13 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
     
 	{From, {fail, Sid}} ->
 		% signal fail to site sid
+		% track the AccessList to see what variables are located at site that failed
 		From ! {adb_tm, Sid},
 	    loop(AgeList,ROList, WaitList, AccessList, AbortList);
 	
 	{From, {recover, Sid}} ->
 		From ! {adb_tm, Sid},
-		% signal recover to site sid
-	    loop(AgeList,ROList, WaitList, AccessList, AbortList)
+		rpc:call(db@localhost, adb_db, recovery,[Sid]),
+		[ NewAccessList2 | [ NewWaitList2 ] ] = checkWaitList(AccessList, WaitList, []),
+	    loop(AgeList,ROList, NewWaitList2, NewAccessList2, AbortList)
     end.
