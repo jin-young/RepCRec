@@ -177,12 +177,34 @@ rpc(Sid, Q) ->
 			Reply
     end.
     
+findUpSite(SiteId, BeginId) ->
+    case status(SiteId) of
+        up ->
+            SiteId;
+        down ->
+            case ((SiteId + 1) rem 10) of
+                BeginId ->
+                    {false, alldown};
+                _ ->
+                    findUpSite((SiteId + 1) rem 10, BeginId)
+            end
+    end.
+    
 rpc(Q) ->
     Caller = self(),
-    adb_db1 ! {Caller, Q},
-    receive
-		{Caller, Reply} ->
-			Reply
+    {A1,A2,A3} = now(),
+    random:seed(A1, A2, A3),
+    Ran = random:uniform(10), 
+    TargetId = findUpSite(Ran, Ran),
+    case TargetId of
+        {false, alldown} ->
+            {false, alldown};
+        _ ->
+            getId(TargetId) ! {Caller, Q},
+            receive
+		        {Caller, Reply} ->
+			        Reply
+            end
     end.    
     
 getId(SiteIdx) ->
@@ -263,6 +285,7 @@ loop(SiteIdx, Status, Vesion) ->
 			From ! {From, true},
 			loop(SiteIdx, up, Vesion);
 		{From, {rl_acquire, TransId, VarId}} ->
+		    io:format("Handled by ~p~n", [SiteIdx]),
 		    case ets:lookup(wlock, VarId) of
                 [] ->
 			        case ets:lookup(rlock, VarId) of
@@ -293,6 +316,7 @@ loop(SiteIdx, Status, Vesion) ->
             end,	                        
 			loop(SiteIdx, Status, Vesion);
 		{From, {wl_acquire, TransId, VarId}} ->
+		    io:format("Handled by ~p~n", [SiteIdx]),
 			case ets:lookup(wlock, VarId) of
                 [] ->
 			        case ets:lookup(rlock, VarId) of
@@ -329,6 +353,7 @@ loop(SiteIdx, Status, Vesion) ->
             end,	                        
 			loop(SiteIdx, Status, Vesion);		
 		{From, {release, TransId, VarId}} ->
+		    io:format("Handled by ~p~n", [SiteIdx]),
 			io:format("Release: ~p~n", [VarId]),
 			case ets:lookup(wlock, VarId) of
 			    [] -> [];
