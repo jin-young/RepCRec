@@ -204,12 +204,30 @@ deleteElement(Tid, List, TmpList) ->
 						cleanUpRO(Tid, TL, lists:append(TmpROList,[H]) )
 				end
 		end.
-		
 
+commit(Tid, List, NewAccessList) ->
+	case List of
+		[] ->
+			NewAccessList;
+		
+		[H | TL] ->
+			[Operation | [Detail]] = H,
+			if 
+			Operation =:= r ->
+				commit(Tid, TL, NewAccessList);
+			true ->
+				{Ttmp,ValId,Value} = Detail,
+				if 
+					Ttmp =:= Tid ->	 
+						rpc:call(db@localhost, adb_db, setter,[ValId, Value]),
+						commit(Tid, TL, NewAccessList);
+					true ->
+						commit(Tid, TL, lists:append(NewAccessList,[H]) )
+				end
+			end
+	end.
 		
 	
-
-
 abort(Tid, AgeList, ROList, WaitList, AccessList, AbortList) ->
 	% release lock -> Tid and ValId that Tid hold from AccessList
 	% remove Tid from every list
@@ -267,10 +285,12 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 						true->
 							loop(AgeList, ROList, lists:append(WaitList,[[{endT, Tid}]]), AccessList, AbortList); 
 						false->
-							%commit and cleanup;
-							cleanUp(Tid, AgeList, ROList, WaitList, AccessList, AbortList),
-							io:format("~p commited~n", [Tid]),
-							loop(AgeList, ROList, WaitList, AccessList, AbortList)
+							io:format("~s commited~n", [Tid]),
+							% commit 
+							ReverseAccessList = lists:reverse(AccessList),
+							% clean up
+							cleanUp(Tid, AgeList, ROList, WaitList,lists:reverse(commit(Tid, ReverseAccessList, [])), AbortList)
+							%loop(AgeList, ROList, WaitList, AccessList, AbortList)
 					end
 			end;
 		%loop(AgeList,ROList, WaitList, AccessList, AbortList);
