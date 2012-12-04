@@ -28,13 +28,13 @@ send_command([H|TL]) ->
                     nomatch -> 
                         case re:run(Cmd, "R(.+)") of 
                             {match, _} ->
-                                [A|B]=string:tokens(Cmd,"R(,)"),
+                                [A|B]=string:tokens(Cmd,"R( , )"),
                                 r(A,B),
                                 send_command(TL);
                             nomatch ->
                                 case re:run(Cmd, "W(.+)") of
                                     {match, _} ->
-                                        [A,B,C]=string:tokens(Cmd,"W(,)"),
+                                        [A,B,C]=string:tokens(Cmd,"W( , )"),
                                         w(A,B,C),
                                         send_command(TL);
                                     nomatch ->
