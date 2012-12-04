@@ -432,11 +432,12 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
     receive
 	{From, {beginT, TransId}} ->
 		From ! {adb_tm, TransId},
+		
 	    %if lookupT(TransId) == undefined ->
 		    %NewTransId = spawn(fun() -> adb_tran:start()), registerT(newTransId), From ! {ok};
 		%io:format("~s~n", [AgeList]),
 		io:format("begin ~p~n",[TransId]),
-		loop(lists:append(AgeList,[TransId]),ROList, WaitList, AccessList, AbortList);
+		loop(lists:append(AgeList,[TransId]),ROList, WaitList, AccessList, lists:delete(TransId, AbortList));
 	
 	{From, {endT, Tid}} ->
 		From ! {adb_tm, Tid},
@@ -562,7 +563,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 		From ! {adb_tm, Tid},
 		io:format("begin ~p~n",[Tid]),
 		% create snapshot isolation
-	    loop(lists:append(AgeList,[Tid]),lists:append(ROList,[[Tid,rpc:call(db@localhost, adb_db, snapshot, [])]]), WaitList, AccessList, AbortList);
+	    loop(lists:append(AgeList,[Tid]),lists:append(ROList,[[Tid,rpc:call(db@localhost, adb_db, snapshot, [])]]), WaitList, AccessList, lists:delete(Tid, AbortList));
 	{From, {dump}} ->
 		From ! {adb_tm, rpc:call(db@localhost, adb_db, dump, [])},
 		%rpc:call(db@localhost, adb_db, dump, []),
