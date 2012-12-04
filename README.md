@@ -4,9 +4,9 @@ RepCRec
 This is Replicated Concurrency Control and Recovery, a.k.a. RepCRec, project for 2012 NYU Computer Science Advanced Database Systems class final project.
 
 TEAM MEMBER:
- * Suphannee Sivakorn (suphannee.s@nyu.edu)
+ * Suphannee Sivakorn (ss6330@nyu.edu)
  * SooBok Shin (ss6321@nyu.edu)
- * JinYoung Heo (jinyoung@nyu.edu)
+ * JinYoung Heo (jyh300@nyu.edu)
 
 REQUIREMEMT:
 
