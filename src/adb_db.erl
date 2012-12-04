@@ -172,10 +172,11 @@ collectSanpshotValues(Dump, TempTableId) ->
 collectValues(CurrentIdx, EndIdx, Values) ->
     case CurrentIdx =< EndIdx of
 		true -> 
-		        case status(CurrentIdx) of
-		            up -> collectValues(CurrentIdx+1, EndIdx, lists:append(Values, [dump(CurrentIdx)]));
-		            down -> collectValues(CurrentIdx+1, EndIdx, lists:append(Values, [{CurrentIdx, down}]))
-		        end;
+		        collectValues(CurrentIdx+1, EndIdx, lists:append(Values, [dump(CurrentIdx)]));
+		        %case status(CurrentIdx) of
+		        %    up -> collectValues(CurrentIdx+1, EndIdx, lists:append(Values, [dump(CurrentIdx)]));
+		        %    down -> collectValues(CurrentIdx+1, EndIdx, lists:append(Values, [{CurrentIdx, down}]))
+		        %end;
 		false -> Values
     end.
     
@@ -314,12 +315,12 @@ loop(SiteIdx, Status, Version) ->
 			loop(SiteIdx, Status, Version);
 		{From, {dump}} ->
 			io:format("dump: ~p~n", [SiteIdx]),
+			TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
 			case Status of
 			    up ->
-			        TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
 			        From ! {From, {SiteIdx, up, ets:tab2list(TblId)}};
 			    down ->
-			        From ! {From, {SiteIdx, down}}
+			        From ! {From, {SiteIdx, down, ets:tab2list(TblId)}}
 			end,
 			loop(SiteIdx, Status, Version);
 		{From, {fail}} ->
