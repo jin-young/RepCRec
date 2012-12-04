@@ -1,0 +1,12 @@
+// Test 10
+// read track
+begin(T1)
+R(T1,x1)
+R(T1,x2)
+W(T1,x1,1000)
+W(T1,x2,2000)
+R(T1,x1)
+R(T1,x2)
+end(T1)
+dump(x1)
+dump(x2)

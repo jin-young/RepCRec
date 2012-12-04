@@ -1,0 +1,7 @@
+// ReadOnly only
+beginRO(T1)
+R(T1,x1)
+R(T1,x7)
+R(T1,x4)
+R(T1,x2)
+end(T1)
