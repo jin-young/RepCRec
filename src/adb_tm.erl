@@ -213,13 +213,15 @@ isReadOnly(Tid, ROList) ->
 		end.	
 
 readFromSnapshot(Tid, ValId, ROList) ->
- 
+	%io:format("~p ~p ~p ~n", [Tid, ValId, ROList]),
 			[H | TL] = ROList,
 			[Ttmp | Snapshot] = H,
+			%io:format("~p ~n", [ValId]),
 			if 
 				Ttmp =:= Tid ->	 
 					Pred = fun(X) -> (fun({Xtmp,_}) -> Xtmp =:= X end) end,
-					case lists:filter(Pred(ValId), Snapshot) of
+					%io:format("~p ~n", [lists:filter(Pred(ValId), hd(Snapshot))]),
+					case lists:filter(Pred(ValId), hd(Snapshot)) of
 						[] -> 
 							case rpc:call(db@localhost, adb_db, getter,[ValId]) of 
 								{true,Value} -> {true,Value}; 
@@ -258,16 +260,17 @@ doReadOnly(ROList, List, NewList) ->
 														doReadOnly(ROList, Tail, lists:append(NewList, [Head]))
 												end	
 										end;
-									{false, Sid} ->	
+									{false, Sid} ->	%odd number
 										case rpc:call(db@localhost, adb_db, status,[list_to_integer(Sid)]) of
-											up -> 
+											down -> %still fail
 												doReadOnly(ROList, Tail, lists:append(NewList, [Head]));
-											down ->
+											up ->
 												case readFromSnapshot(Ttmp, ValId, ROList) of
 													{true,Value} -> 
-														doReadOnly(ROList, Tail, NewList),
+														
 														% cal rpc to client to send value
-														io:format("call rpc to client ~p : ~p~n", [ValId, Value]);
+														io:format("call rpc to client ~p : ~p~n", [ValId, Value]),
+														doReadOnly(ROList, Tail, NewList);
 													{false} -> 
 														doReadOnly(ROList, Tail, lists:append(NewList, [Head]))
 												end	
@@ -347,7 +350,7 @@ commit(Tid, List, NewAccessList) ->
 				{Ttmp,ValId,Value} = Detail,
 				if 
 					Ttmp =:= Tid ->	 
-						rpc:call(db@localhost, adb_db, setter,[ValId, Value]),
+						rpc:call(db@localhost, adb_db, setter,[ValId, list_to_integer(Value)]),
 						commit(Tid, TL, NewAccessList);
 					true ->
 						commit(Tid, TL, lists:append(NewAccessList,[H]) )
@@ -396,7 +399,7 @@ abort(Tid, AgeList, ROList, WaitList, AccessList, AbortList) ->
 	% release(Tid, ValId),
 	% rpc:call(db@localhost, adb_db, wl_acquire,[Tid,ValId])
 	% rpc:call(db@localhost, adb_db, release,Tid),
-	io:format("~s aborted in abort function~n", [Tid]),
+	io:format("~s aborted~n", [Tid]),
 	
 	% io:format("previous ~p , ~p ~n", [WaitList, AccessList]),
 	
@@ -432,6 +435,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 	    %if lookupT(TransId) == undefined ->
 		    %NewTransId = spawn(fun() -> adb_tran:start()), registerT(newTransId), From ! {ok};
 		%io:format("~s~n", [AgeList]),
+		io:format("begin ~p~n",[TransId]),
 		loop(lists:append(AgeList,[TransId]),ROList, WaitList, AccessList, AbortList);
 	
 	{From, {endT, Tid}} ->
@@ -468,7 +472,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 				io:format("~p already aborted~n", [Tid]),
 				loop(AgeList, ROList, WaitList, AccessList, AbortList);
 			false ->
-				io:format("~p ~p ~n", [Tid, ValId]),
+				%io:format("~p ~p ~n", [Tid, ValId]),
 				case rpc:call(db@localhost, adb_db, wl_acquire,[Tid,ValId]) of  
 					{false, [THoldLock]} ->
 					
@@ -517,7 +521,8 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 						case readFromSnapshot(Tid, ValId, ROList) of
 							{true,Value} -> 
 							% cal rpc to client to send value
-							io:format("call rpc to client ~p : ~p~n", [ValId, Value]);
+							io:format("call rpc to client ~p : ~p~n", [ValId, Value]),
+							loop(AgeList, ROList, WaitList, AccessList, AbortList);
 							{false} -> 
 								loop(AgeList,ROList, lists:append(WaitList,[[r, {Tid, ValId}]]),  AccessList, AbortList)
 						end;
@@ -554,24 +559,25 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 	
 	{From, {beginRO, Tid}} ->
 		From ! {adb_tm, Tid},
+		io:format("begin ~p~n",[Tid]),
 		% create snapshot isolation
 	    loop(lists:append(AgeList,[Tid]),lists:append(ROList,[[Tid,rpc:call(db@localhost, adb_db, snapshot, [])]]), WaitList, AccessList, AbortList);
 	{From, {dump}} ->
-		From ! {adb_tm, dump},
-		rpc:call(db@localhost, adb_db, dump, []),
+		From ! {adb_tm, rpc:call(db@localhost, adb_db, dump, [])},
+		%rpc:call(db@localhost, adb_db, dump, []),
 		% return above to client
 	    loop(AgeList,ROList, WaitList, AccessList, AbortList);
 	
 	{From, {dump, Sid}} ->
-		From ! {adb_tm, Sid},
+		%From ! {adb_tm, Sid},
 		%rpc:call(db@localhost, adb_db, dump, [Sid]),
 		% return above to client
                 case re:run(Sid, "x.+") of
                     {match,_} ->
-                        [A]=string:tokens(Sid,"x"),
-                        rpc:call(db@localhost, adb_db, dump,[list_to_integer(A)]);
+                        %[A]=string:tokens(Sid,"x"),
+                        From ! {adb_tm, rpc:call(db@localhost, adb_db, dumpValue,[Sid])};
 					nomatch ->
-						rpc:call(db@localhost, adb_db, dumpValue, [list_to_integer(Sid)])	
+						From ! {adb_tm, rpc:call(db@localhost, adb_db, dump, [list_to_integer(Sid)])}	
 				end,
 	    loop(AgeList,ROList, WaitList, AccessList, AbortList);
     
