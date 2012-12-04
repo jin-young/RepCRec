@@ -165,10 +165,10 @@ isReadOnly(Tid, ROList) ->
 	end.
 	
 	evenNum(ValId) ->
-		io:format("~s~n", [ValId]),
-		Index = hd(string:tokens(atom_to_list(ValId),"x")),
-		io:format("~s~n", [Index]),
-		{Id,_} = string:to_integer(Index),
+		%io:format("~p~n", [ValId]),
+		Index = hd(string:tokens(ValId,"x")),
+		%io:format("~p~n", [Index]),
+		Id = list_to_integer(Index),
 		if 
 			Id rem 2 =:= 0 ->
 				% even
@@ -474,7 +474,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 				% if site is fail -> in the waitList
 				% if recover call checkWaitList
 				% 2: read is from normal transaction, tracking from AccessList from that transaction
-				io:format("~p ~p ~p~n",[Tid, ROList,isReadOnly(Tid, ROList)]),
+				%io:format("~p ~p ~p~n",[Tid, ROList,isReadOnly(Tid, ROList)]),
 				case isReadOnly(Tid, ROList) of
 					true ->
 						case readFromSnapshot(Tid, ValId, ROList) of
@@ -559,7 +559,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 					loop(AgeList,ROList, WaitList, TmpAccessList, AbortList);
 				[Head|Tail] -> 
 					[Operation|Detail]= Head,
-					io:format("~p~n", [Head]),
+					%io:format("~p~n", [Head]),
 					case Detail of 
 						[{_,ValId,_}] ->
 							[{Tid, ValId,_}] = Detail,
@@ -570,7 +570,9 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 									NewAccessList = deleteElement(Tid, AccessList,[]),
 									rpc:call(db@localhost, adb_db, release,[Tid]),
 									[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(ROList,NewAccessList, NewWaitList, []),
-									failTrack(Sid,lists:delete(Tid,AgeList), ROList, NewWaitList2, NewAccessList2, lists:append(AbortList, [Tid]), TmpAccessList);
+									
+									%io:format("~p ~p~n", [NewAccessList2,NewWaitList2]),
+									failTrack(Sid,lists:delete(Tid,AgeList), ROList, NewWaitList2, Tail, lists:append(AbortList, [Tid]), TmpAccessList);
 								{false,Sidtmp} ->
 									if 
 										Sid =:= Sidtmp -> 
@@ -579,10 +581,10 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 											NewAccessList = deleteElement(Tid, AccessList,[]),
 											rpc:call(db@localhost, adb_db, release,[Tid]),
 											[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(ROList,NewAccessList, NewWaitList, []),
-											failTrack(Sid,lists:delete(Tid,AgeList), ROList, NewWaitList2, NewAccessList2, lists:append(AbortList, [Tid]), TmpAccessList);
+											failTrack(Sid,lists:delete(Tid,AgeList), ROList, NewWaitList2, Tail, lists:append(AbortList, [Tid]), TmpAccessList);
 											
 										true ->
-											failTrack(Sid,AgeList, ROList, WaitList, AccessList, AbortList, lists:append(TmpAccessList, [Head]))
+											failTrack(Sid,AgeList, ROList, WaitList, Tail, AbortList, lists:append(TmpAccessList, [Head]))
 									end
 							end;
 						 [{_,ValId}]->
@@ -594,7 +596,9 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
  									NewAccessList = deleteElement(Tid, AccessList,[]),
  									rpc:call(db@localhost, adb_db, release,[Tid]),
  									[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(ROList,NewAccessList, NewWaitList, []),
- 									failTrack(Sid,lists:delete(Tid,AgeList), ROList, NewWaitList2, NewAccessList2, lists:append(AbortList, [Tid]), TmpAccessList);
+									
+									
+ 									failTrack(Sid,lists:delete(Tid,AgeList), ROList, NewWaitList2, Tail, lists:append(AbortList, [Tid]), TmpAccessList);
  								{false,Sidtmp} ->
  									if 
  										Sid =:= Sidtmp -> 
@@ -603,10 +607,10 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
  											NewAccessList = deleteElement(Tid, AccessList,[]),
  											rpc:call(db@localhost, adb_db, release,[Tid]),
  											[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(ROList,NewAccessList, NewWaitList, []),
- 											failTrack(Sid,lists:delete(Tid,AgeList), ROList, NewWaitList2, NewAccessList2, lists:append(AbortList, [Tid]), TmpAccessList);
+ 											failTrack(Sid,lists:delete(Tid,AgeList), ROList, NewWaitList2, Tail, lists:append(AbortList, [Tid]), TmpAccessList);
 											
  										true ->
- 											failTrack(Sid,AgeList, ROList, WaitList, AccessList, AbortList, lists:append(TmpAccessList, [Head]))
+ 											failTrack(Sid,AgeList, ROList, WaitList, Tail, AbortList, lists:append(TmpAccessList, [Head]))
 									end
 							end
 					end
