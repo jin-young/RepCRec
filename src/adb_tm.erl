@@ -533,7 +533,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
                         [A]=string:tokens(Sid,"x"),
                         rpc:call(db@localhost, adb_db, dump, [A]);
 					nomatch ->
-						rpc:call(db@localhost, adb_db, , [Sid]) 		
+						rpc:call(db@localhost, adb_db, dumpValue, [Sid])	
 				end,
 	    loop(AgeList,ROList, WaitList, AccessList, AbortList);
     
