@@ -108,7 +108,7 @@ checkWaitList(AgeList,ROList,AccessList, WaitList, AbortList, NewWaitList) ->
 						%io:format("~p~n", [Head]),
 						[r,{Tid, ValId}] = Head,
 						%io:format("~p : ~p~n", [Tid, ValId]),
-						%doReadOnly(ROList, WaitList, NewWaitList),
+						doReadOnly(ROList, WaitList, NewWaitList),
 						Ret = rpc:call(db@localhost, adb_db, rl_acquire,[Tid,ValId]),
 						%io:format("88888~p ~n", [Ret]),
 						case Ret of  
