@@ -526,14 +526,14 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 	
 	{From, {dump, Sid}} ->
 		From ! {adb_tm, Sid},
-		rpc:call(db@localhost, adb_db, dump, []),
+		%rpc:call(db@localhost, adb_db, dump, [Sid]),
 		% return above to client
                 case re:run(Sid, "x.+") of
                     {match,_} ->
                         [A]=string:tokens(Sid,"x"),
                         rpc:call(db@localhost, adb_db, dump, [A]);
 					nomatch ->
-						rpc:call(db@localhost, adb_db, dumpValue, [Sid]) 		
+						rpc:call(db@localhost, adb_db, , [Sid]) 		
 				end,
 	    loop(AgeList,ROList, WaitList, AccessList, AbortList);
     
