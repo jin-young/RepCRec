@@ -1,6 +1,9 @@
 -module(adb_client).
--export([start/1,beginT/1,beginRO/1,r/2,w/3,dump/0,dump/1,endT/1,fail/1,recover/1]).
+-export([start/0, start/1,beginT/1,beginRO/1,r/2,w/3,dump/0,dump/1,endT/1,fail/1,recover/1]).
             
+start() ->
+    io:format("***** NO INPUT FILE SPECIFIED. WATING FOR MANUAL OPERATION INPUT ******~n",[]).
+    
 start(Name) ->
     case file:open(Name, [read]) of 
         {ok, Device} -> for_each_line(Device, fun(X) -> parse(X) end)
@@ -19,7 +22,7 @@ send_command([H|TL]) ->
          case re:run(Cmd, "^\/\/.*") of
             {match, _} -> send_command(TL); % skip comment line
             nomatch -> 
-                io:format("~p~n", [Cmd]),
+                io:format("~s: ", [Cmd]),
                 case re:run(Cmd, "beginRO(.+)") of
                     {match,_} ->
                         [A]=string:tokens(Cmd,"beginRO()"),
@@ -81,33 +84,44 @@ send_command([H|TL]) ->
     end.
                        
 beginT(Tid) ->
-    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, beginT, [Tid])]).
+    %io:format("~p~n",[rpc:call(tm@localhost, adb_tm, beginT, [Tid])]).
+    io:format("\tTransation ~p has been started.~n",[rpc:call(tm@localhost, adb_tm, beginT, [Tid])]).
    
 beginRO(Tid) ->
-    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, beginRO, [Tid])]).
+    io:format("\tRead-Only transation ~p has been started.~n",[rpc:call(tm@localhost, adb_tm, beginRO, [Tid])]).
 
 r(Tid, ValId) ->
     {A,B}=rpc:call(tm@localhost, adb_tm, r, [Tid, ValId]),
-    io:format("~p~p~n",[A,B]).
+    io:format("\tTransation ~p read a value of ~p~n",[A,B]).
     
 w(Tid, ValId, Value) ->
     {A,B,C}=rpc:call(tm@localhost, adb_tm, w, [Tid, ValId, Value]),
-    io:format("~p~p~p~n",[A,B,C]).
+    io:format("\tTransaction ~p update variable ~p with new value ~p~n",[A,B,C]).
 
 dump() ->
-    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [])]).
+    io:format("~n================ BEGIN ALL SITES DUMPING =================~n"),
+    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [])]),
+    io:format("================ END ALL SITES DUMPING =================~n").
 
-dump(Tid) ->%this is for dump(1) or dump(x1)
-    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [Tid])]).
+dump(Id) ->%this is for dump(1) or dump(x1)
+    ConvId = case is_integer(Id) of
+        true ->
+            integer_to_list(Id);
+        false ->
+            Id
+    end,
+    io:format("~n================ BEGIN DUMPING FOR ~p =================~n", [ConvId]),
+    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [ConvId])]),
+    io:format("================ END DUMPING FOR ~p =================~n", [ConvId]).    
    
 endT(Tid) ->
-    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, endT, [Tid])]).    
+    io:format("\tTransation ~p has been ended.~n",[rpc:call(tm@localhost, adb_tm, endT, [Tid])]).
 
 fail(SiteId) ->
-    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, fail, [SiteId])]).
+    io:format("\tSite ~p has been failed.~n",[rpc:call(tm@localhost, adb_tm, fail, [SiteId])]).
     
 recover(SiteId) ->
-      io:format("~p~n",[rpc:call(tm@localhost, adb_tm, recover, [SiteId])]).
+    io:format("\tSite ~p has been recovered.~n",[rpc:call(tm@localhost, adb_tm, recover, [SiteId])]).
 
 trydump([]) ->dump();
 trydump([H]) ->dump(H).
