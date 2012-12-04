@@ -95,7 +95,13 @@ r(Tid, ValId) ->
     io:format("\tTransation ~p read a value of ~p~n",[A,B]).
     
 w(Tid, ValId, Value) ->
-    {A,B,C}=rpc:call(tm@localhost, adb_tm, w, [Tid, ValId, Value]),
+    NewValue = case is_integer(Value) of
+        true ->
+            integer_to_list(Value);
+        false ->
+            Value
+    end,
+    {A,B,C}=rpc:call(tm@localhost, adb_tm, w, [Tid, ValId, NewValue]),
     io:format("\tTransaction ~p update variable ~p with new value ~p~n",[A,B,C]).
 
 dump() ->
@@ -118,10 +124,22 @@ endT(Tid) ->
     io:format("\tTransation ~p has been ended.~n",[rpc:call(tm@localhost, adb_tm, endT, [Tid])]).
 
 fail(SiteId) ->
-    io:format("\tSite ~p has been failed.~n",[rpc:call(tm@localhost, adb_tm, fail, [SiteId])]).
+    ConvId = case is_integer(SiteId) of
+        true ->
+            integer_to_list(SiteId);
+        false ->
+            SiteId
+    end,
+    io:format("\tSite ~p has been failed.~n",[rpc:call(tm@localhost, adb_tm, fail, [ConvId])]).
     
 recover(SiteId) ->
-    io:format("\tSite ~p has been recovered.~n",[rpc:call(tm@localhost, adb_tm, recover, [SiteId])]).
+    ConvId = case is_integer(SiteId) of
+        true ->
+            integer_to_list(SiteId);
+        false ->
+            SiteId
+    end,
+    io:format("\tSite ~p has been recovered.~n",[rpc:call(tm@localhost, adb_tm, recover, [ConvId])]).
 
 trydump([]) ->dump();
 trydump([H]) ->dump(H).
