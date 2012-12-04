@@ -79,12 +79,13 @@ checkReadWaitListOlder(Tid, ValId, WaitList, AgeList) ->
 	end.	
 	
 	% If some transactions in WaitList can performed, do it!
-checkWaitList(ROList,AccessList, WaitList, NewWaitList) ->
-		% io:format("~p~n", [NewWaitList]),
+checkWaitList(AgeList,ROList,AccessList, WaitList, AbortList, NewWaitList) ->
+		%io:format("~p~n", [WaitList]),
 		case WaitList of
 			[] ->
 				lists:append([AccessList],[NewWaitList]);
 			[Head|Tail] ->
+				%io:format("999999999999999999999~p~n", [Head]),
 				case Head of
 					[w,_] ->
 						%io:format("~p", [Head]),
@@ -92,33 +93,59 @@ checkWaitList(ROList,AccessList, WaitList, NewWaitList) ->
 						case rpc:call(db@localhost, adb_db, wl_acquire,[Tid,ValId])  of  
 								{false, [THoldLock]} -> 
 								    io:format("cannot obtain lock on ~s ~n", [ValId]),
-									checkWaitList(ROList,AccessList, Tail, lists:append(NewWaitList, [Head]));
+									checkWaitList(AgeList, ROList,AccessList, Tail,AbortList, lists:append(NewWaitList, [Head]));
+								{false} ->
+										io:format("put ~s into WaitList~n", [Tid]),
+										checkWaitList(AgeList, ROList,AccessList, Tail,AbortList, lists:append(NewWaitList, [Head]));
+										%abort(Tid,AgeList, ROList, lists:append(WaitList,[[w, {Tid, ValId, Value}]]), AccessList, AbortList);
+										%loop(AgeList, ROList, lists:append(WaitList,[[w, {Tid, ValId, Value}]]), AccessList, AbortList);
 								{true, _} ->
 									io:format("~p performed write on ~p~n", [Tid, ValId]),
 									% perform operation
-									checkWaitList(ROList,lists:append([Head],AccessList), Tail, deleteElement(Tid,WaitList, []))
+									checkWaitList(AgeList, ROList,lists:append([Head],AccessList), Tail, AbortList,NewWaitList)
 						end;
 					[r,_] ->
+						%io:format("~p~n", [Head]),
 						[r,{Tid, ValId}] = Head,
-						doReadOnly(ROList, WaitList, NewWaitList),
-	
-						case rpc:call(db@localhost, adb_db, rl_acquire,[Tid,ValId])  of  
+						%io:format("~p : ~p~n", [Tid, ValId]),
+						%doReadOnly(ROList, WaitList, NewWaitList),
+						Ret = rpc:call(db@localhost, adb_db, rl_acquire,[Tid,ValId]),
+						%io:format("88888~p ~n", [Ret]),
+						case Ret of  
+							
 							{false, [THoldLock]} -> 
-								checkWaitList(ROList,AccessList, Tail, lists:append(NewWaitList, [Head]));
+								checkWaitList(AgeList,ROList,AccessList, Tail, AbortList, lists:append(NewWaitList, [Head]));
+							{false} ->
+									% site fail
+									%abort(Tid,AgeList, ROList, lists:append(WaitList,[[r, {Tid, ValId}]]), AccessList, AbortList);
+									io:format("put ~s into WaitList~n", [Tid]),
+									checkWaitList(AgeList, ROList,AccessList, Tail, AbortList, lists:append(NewWaitList, [Head]));
 							{true, _} ->
-								io:format("~p performed read on ~p~n", [Tid, ValId]),
-								% perform operation
-								checkWaitList(ROList,lists:append([Head],AccessList), Tail, deleteElement(Tid,WaitList, []))
+									io:format("~p performed read on ~p~n", [Tid, ValId]),
+									% perform operation
+									checkWaitList(AgeList, ROList,lists:append([Head],AccessList), Tail, AbortList,NewWaitList)							
+								
 						end;
 					[endT, _] -> 		
 						[endT,Tid] = Head,
-						TmpList = lists:delete([endT,Tid], NewWaitList),
-						case isMember(Tid, TmpList) of
+						%io:format("00000000000000~p~n", [Tid]),
+						%io:format("new Waitlist: ~p ~n", [NewWaitList]),
+						%io:format("`Waitlist: ~p ~n", [WaitList]),
+
+						%TmpList = lists:delete([endT,Tid], NewWaitList),
+						case isMember(Tid, NewWaitList) of
 							true->
-								checkWaitList(ROList,AccessList, Tail, NewWaitList);
+								io:format("~s in Waitlist~n", [Tid]),
+								
+								checkWaitList(AgeList, ROList,AccessList, Tail, AbortList, lists:append(NewWaitList, [Head]));
 							false->
-								checkWaitList(ROList,AccessList, Tail, deleteElement(Tid,WaitList, []))
-								%commit and cleanup;						
+								%commit and cleanup;
+								io:format("~s commited~n", [Tid]),
+								% commit 
+								ReverseAccessList = lists:reverse(AccessList),
+								% clean up
+								cleanUp(Tid, AgeList, ROList, WaitList,lists:reverse(commit(Tid, ReverseAccessList, [])), AbortList),	
+								checkWaitList(AgeList, ROList,AccessList, Tail,AbortList, NewWaitList)					
 						end		
 					end
 		end.
@@ -169,16 +196,19 @@ isReadOnly(Tid, ROList) ->
 		Index = hd(string:tokens(ValId,"x")),
 		%io:format("~p~n", [Index]),
 		Id = list_to_integer(Index),
+		%io:format("~p~n", [Id]),
 		if 
 			Id rem 2 =:= 0 ->
 				% even
+				%io:format("true ~p~n", [Id]),
 				{true};
 			true ->
 				% odd
+				%io:format("flase ~p~n", [Id]),
 				if 
-					Id =:= 9 -> {false,10};
-					Id =:= 19 -> {false,10};
-					true -> {false,(Id + 1) rem 10} 
+					Id =:= 9 -> {false,integer_to_list(10)};
+					Id =:= 19 -> {false,integer_to_list(10)};
+					true -> {false,integer_to_list((Id + 1) rem 10)} 
 				end
 		end.	
 
@@ -229,7 +259,7 @@ doReadOnly(ROList, List, NewList) ->
 												end	
 										end;
 									{false, Sid} ->	
-										case rpc:call(db@localhost, adb_db, status,[Sid]) of
+										case rpc:call(db@localhost, adb_db, status,[list_to_integer(Sid)]) of
 											up -> 
 												doReadOnly(ROList, Tail, lists:append(NewList, [Head]));
 											down ->
@@ -366,7 +396,7 @@ abort(Tid, AgeList, ROList, WaitList, AccessList, AbortList) ->
 	% release(Tid, ValId),
 	% rpc:call(db@localhost, adb_db, wl_acquire,[Tid,ValId])
 	% rpc:call(db@localhost, adb_db, release,Tid),
-	io:format("~s aborted~n", [Tid]),
+	io:format("~s aborted in abort function~n", [Tid]),
 	
 	% io:format("previous ~p , ~p ~n", [WaitList, AccessList]),
 	
@@ -375,7 +405,7 @@ abort(Tid, AgeList, ROList, WaitList, AccessList, AbortList) ->
 
 	% io:format("new ~p , ~p ~n", [NewWaitList, NewAccessList]),
 	rpc:call(db@localhost, adb_db, release,[Tid]),
-	[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(ROList,NewAccessList, NewWaitList, []),
+	[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(AgeList, ROList,NewAccessList, NewWaitList,AbortList, []),
 	% io:format("new ~p , ~p ~n", [NewWaitList2, NewAccessList2]),
 	loop(lists:delete(Tid,AgeList), ROList, NewWaitList2, NewAccessList2, lists:append(AbortList, [Tid])).
 	
@@ -391,7 +421,7 @@ cleanUp(Tid, AgeList, ROList, WaitList, AccessList, AbortList) ->
 		NewAccessList = deleteElement(Tid, AccessList,[]),	
 		% io:format("new ~p , ~p ~n", [NewWaitList, NewAccessList]),
 		rpc:call(db@localhost, adb_db, release,[Tid]),
-		[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(ROList,NewAccessList, NewWaitList, []),
+		[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(AgeList, ROList,NewAccessList, NewWaitList,AbortList, []),
 		% io:format("new ~p , ~p ~n", [NewWaitList2, NewAccessList2]),
 		loop(lists:delete(Tid,AgeList), cleanUpRO(Tid, ROList, []), NewWaitList2, NewAccessList2, lists:delete(Tid, AbortList)).
 		
@@ -411,9 +441,11 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 				true -> 
 					loop(AgeList, ROList, WaitList, AccessList, lists:delete(Tid, AbortList));
 				false ->
+					%io:format("not in abortlist--------~p~n", [Tid]),
 					case isMember(Tid, WaitList) of
 						true->
-							loop(AgeList, ROList, lists:append(WaitList,[[{endT, Tid}]]), AccessList, AbortList); 
+							io:format("put in the waitlist~n"),
+							loop(AgeList, ROList, lists:append(WaitList,[[endT, Tid]]), AccessList, AbortList); 
 						false->
 							io:format("~s commited~n", [Tid]),
 							% commit 
@@ -430,13 +462,16 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 		From ! {adb_tm, {Tid, ValId, Value}},
 		%WriteLockExist = fun(X, T) -> (fun({T,Xtmp}) -> Xtmp =:= X end) end,
 		%case lists:member(true, lists:map(WriteLockExist(ValId), WriteLock)) of
+		%io:format("~p~n ", [AccessList]),
 		case lists:member(Tid,AbortList) of
 			true -> 
 				io:format("~p already aborted~n", [Tid]),
 				loop(AgeList, ROList, WaitList, AccessList, AbortList);
 			false ->
+				io:format("~p ~p ~n", [Tid, ValId]),
 				case rpc:call(db@localhost, adb_db, wl_acquire,[Tid,ValId]) of  
 					{false, [THoldLock]} ->
+					
 					% compare age to WaitList or holding lock transaction
 					%[{THoldLock, ValId}] = lists:filter(WriteLockExist(ValId), WriteLock),
 						case whoOlder(THoldLock, Tid, AgeList) =:= Tid andalso checkWriteWaitListOlder(Tid, ValId, WaitList, AgeList) of
@@ -449,8 +484,9 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 								abort(Tid,AgeList, ROList, WaitList, AccessList, AbortList)
 				 		end;
 					{false} ->
-						abort(Tid,AgeList, ROList, lists:append(WaitList,[[w, {Tid, ValId, Value}]]), AccessList, AbortList);
-						
+						io:format("put ~s into WaitList~n", [Tid]),
+						%abort(Tid,AgeList, ROList, lists:append(WaitList,[[w, {Tid, ValId, Value}]]), AccessList, AbortList);
+						loop(AgeList, ROList, lists:append(WaitList,[[w, {Tid, ValId, Value}]]), AccessList, AbortList);
 					{true,_} ->
 						io:format("~p performed write on ~p~n", [Tid, ValId]),
 						loop(AgeList,ROList, WaitList, lists:append([[w, {Tid, ValId, Value}]], AccessList ), AbortList)	
@@ -462,6 +498,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 	{From, {r, {Tid, ValId}}} ->
 		From ! {adb_tm, {Tid, ValId}},
 	    % read operation
+		%io:format("~p~n ", [AccessList]),
 		
 		case lists:member(Tid,AbortList) of
 			true -> 
@@ -502,8 +539,9 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 									end;
 							{false} ->
 								% site fail
-								abort(Tid,AgeList, ROList, lists:append(WaitList,[[r, {Tid, ValId}]]), AccessList, AbortList);
-						
+								%abort(Tid,AgeList, ROList, lists:append(WaitList,[[r, {Tid, ValId}]]), AccessList, AbortList);
+								io:format("put ~s into WaitList~n", [Tid]),
+								loop(AgeList, ROList, lists:append(WaitList,[[r, {Tid, ValId}]]), AccessList, AbortList);
 							{true,_} ->
 								io:format("~p performed read on ~p~n", [Tid, ValId]),
 								% readTrack!!!
@@ -531,24 +569,32 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
                 case re:run(Sid, "x.+") of
                     {match,_} ->
                         [A]=string:tokens(Sid,"x"),
-                        rpc:call(db@localhost, adb_db, dump, [A]);
+                        rpc:call(db@localhost, adb_db, dump,[list_to_integer(A)]);
 					nomatch ->
-						rpc:call(db@localhost, adb_db, dumpValue, [Sid])	
+						rpc:call(db@localhost, adb_db, dumpValue, [list_to_integer(Sid)])	
 				end,
 	    loop(AgeList,ROList, WaitList, AccessList, AbortList);
     
 	{From, {fail, Sid}} ->
-		% signal fail to site sid
-		rpc:call(db@localhost, adb_db, fail, [Sid]),
-		% track the AccessList to see what variables are located at site that failed
 		From ! {adb_tm, Sid},
+		% signal fail to site sid
+		% track the AccessList to see what variables are located at site that failed
+		rpc:call(db@localhost, adb_db, fail, [list_to_integer(Sid)]),
+		%case rpc:call(db@localhost, adb_db, fail, [Sid]) of
+		%	true ->
+		%		io:format("site true");
+		%	false ->
+		%		io:format("site flase")
+		%end, 
+		io:format("site ~p fail~n", [Sid]),
 		failTrack(Sid,AgeList,ROList, WaitList, AccessList, AbortList, []);
 	    %loop(AgeList,ROList, WaitList, AccessList, AbortList);
 	
 	{From, {recover, Sid}} ->
 		From ! {adb_tm, Sid},
-		rpc:call(db@localhost, adb_db, recovery,[Sid]),
-		[ NewAccessList2 | [ NewWaitList2 ] ] = checkWaitList(ROList,AccessList, WaitList, []),
+		true = rpc:call(db@localhost, adb_db, recover,[list_to_integer(Sid)]),
+		io:format("site: ~p recovered~n", [Sid]),
+		[ NewAccessList2 | [ NewWaitList2 ] ] = checkWaitList(AgeList, ROList,AccessList, WaitList,AbortList, []),
 	    loop(AgeList,ROList, NewWaitList2, NewAccessList2, AbortList)
     end.
 
@@ -559,7 +605,8 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 					loop(AgeList,ROList, WaitList, TmpAccessList, AbortList);
 				[Head|Tail] -> 
 					[Operation|Detail]= Head,
-					%io:format("~p~n", [Head]),
+					%io:format("---------~p~n", [Head]),
+					%io:format("---------~p~n", [Detail]),
 					case Detail of 
 						[{_,ValId,_}] ->
 							[{Tid, ValId,_}] = Detail,
@@ -569,18 +616,19 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 									NewWaitList = deleteElement(Tid,WaitList,[]),
 									NewAccessList = deleteElement(Tid, AccessList,[]),
 									rpc:call(db@localhost, adb_db, release,[Tid]),
-									[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(ROList,NewAccessList, NewWaitList, []),
-									
+									[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(AgeList, ROList,NewAccessList, NewWaitList,AbortList, []),
+									%io:format("W TRUE~n"),
 									%io:format("~p ~p~n", [NewAccessList2,NewWaitList2]),
 									failTrack(Sid,lists:delete(Tid,AgeList), ROList, NewWaitList2, Tail, lists:append(AbortList, [Tid]), TmpAccessList);
 								{false,Sidtmp} ->
 									if 
 										Sid =:= Sidtmp -> 
+											%io:format("W False~n"),
 											io:format("~s aborted~n", [Tid]),
 											NewWaitList = deleteElement(Tid,WaitList,[]),
 											NewAccessList = deleteElement(Tid, AccessList,[]),
 											rpc:call(db@localhost, adb_db, release,[Tid]),
-											[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(ROList,NewAccessList, NewWaitList, []),
+											[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(AgeList, ROList,NewAccessList, NewWaitList,AbortList, []),
 											failTrack(Sid,lists:delete(Tid,AgeList), ROList, NewWaitList2, Tail, lists:append(AbortList, [Tid]), TmpAccessList);
 											
 										true ->
@@ -589,24 +637,29 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 							end;
 						 [{_,ValId}]->
  							[{Tid, ValId}] = Detail,
+							%io:format("---------~p~n", [ValId]),
  							case evenNum(ValId) of
  								{true} -> 
  									io:format("~s aborted~n", [Tid]),
  									NewWaitList = deleteElement(Tid,WaitList,[]),
  									NewAccessList = deleteElement(Tid, AccessList,[]),
  									rpc:call(db@localhost, adb_db, release,[Tid]),
- 									[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(ROList,NewAccessList, NewWaitList, []),
+									%io:format("R TRUE~n"),
+ 									[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(AgeList, ROList,NewAccessList, NewWaitList, AbortList, []),
 									
 									
  									failTrack(Sid,lists:delete(Tid,AgeList), ROList, NewWaitList2, Tail, lists:append(AbortList, [Tid]), TmpAccessList);
  								{false,Sidtmp} ->
+									%io:format("false ~p~n", [Sidtmp]),
+									%io:format("false ~p~n", [Sid]),
  									if 
- 										Sid =:= Sidtmp -> 
- 											io:format("~s aborted~n", [Tid]),
+ 										Sid =:= Sidtmp ->
+ 											%io:format("R FALSE~n"),
+											io:format("~s aborted~n", [Tid]),
  											NewWaitList = deleteElement(Tid,WaitList,[]),
  											NewAccessList = deleteElement(Tid, AccessList,[]),
  											rpc:call(db@localhost, adb_db, release,[Tid]),
- 											[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(ROList,NewAccessList, NewWaitList, []),
+ 											[ NewAccessList2| [ NewWaitList2 ] ] = checkWaitList(AgeList, ROList,NewAccessList, NewWaitList, AbortList, []),
  											failTrack(Sid,lists:delete(Tid,AgeList), ROList, NewWaitList2, Tail, lists:append(AbortList, [Tid]), TmpAccessList);
 											
  										true ->
