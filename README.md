@@ -23,9 +23,8 @@ HOW TO RUN:
  
  
  * client: ./bin/client [testFilePathAndName]
- 
-    ex) ./bin/client ./test/projectsampletests.txt  : read input file and run it
-    ex) ./bin/client  : waiting for manual operation input
+    * ./bin/client ./test/projectsampletests.txt  : read input file and run it
+    * ./bin/client  : waiting for manual operation input
     
 COMMAND EXAMPLE FOR MANUAL OPERATION
 
