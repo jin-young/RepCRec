@@ -19,7 +19,7 @@ send_command([H|TL]) ->
          case re:run(Cmd, "^\/\/.*") of
             {match, _} -> send_command(TL); % skip comment line
             nomatch -> 
-                io:format("~s~n", [Cmd]),
+                io:format("~p~n", [Cmd]),
                 case re:run(Cmd, "beginRO(.+)") of
                     {match,_} ->
                         [A]=string:tokens(Cmd,"beginRO()"),
@@ -81,10 +81,10 @@ send_command([H|TL]) ->
     end.
                        
 beginT(Tid) ->
-    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, beginT, [Tid])]).
+    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, beginT, [Tid])]).
    
 beginRO(Tid) ->
-    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, beginRO, [Tid])]).
+    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, beginRO, [Tid])]).
 
 r(Tid, ValId) ->
     {A,B}=rpc:call(tm@localhost, adb_tm, r, [Tid, ValId]),
