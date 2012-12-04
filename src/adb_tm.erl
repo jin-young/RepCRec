@@ -165,7 +165,9 @@ isReadOnly(Tid, ROList) ->
 	end.
 	
 	evenNum(ValId) ->
-		[Index] = string:tokens(atom_to_list(ValId),"x"),
+		io:format("~s~n", [ValId]),
+		Index = hd(string:tokens(atom_to_list(ValId),"x")),
+		io:format("~s~n", [Index]),
 		{Id,_} = string:to_integer(Index),
 		if 
 			Id rem 2 =:= 0 ->
@@ -472,6 +474,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 				% if site is fail -> in the waitList
 				% if recover call checkWaitList
 				% 2: read is from normal transaction, tracking from AccessList from that transaction
+				io:format("~p ~p ~p~n",[Tid, ROList,isReadOnly(Tid, ROList)]),
 				case isReadOnly(Tid, ROList) of
 					true ->
 						case readFromSnapshot(Tid, ValId, ROList) of
@@ -499,11 +502,12 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 									end;
 							{false} ->
 								% site fail
-								abort(Tid,AgeList, ROList, lists:append(WaitList,[[r, {Tid}]]), AccessList, AbortList);
+								abort(Tid,AgeList, ROList, lists:append(WaitList,[[r, {Tid, ValId}]]), AccessList, AbortList);
 						
 							{true,_} ->
 								io:format("~p performed read on ~p~n", [Tid, ValId]),
-								loop(AgeList,ROList, WaitList,lists:append([[r, {Tid}]],AccessList), AbortList)	
+								% readTrack!!!
+								loop(AgeList,ROList, WaitList,lists:append([[r, {Tid, ValId}]],AccessList), AbortList)	
 								% perform operation
 						end
 				end	
@@ -513,7 +517,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 	{From, {beginRO, Tid}} ->
 		From ! {adb_tm, Tid},
 		% create snapshot isolation
-	    loop(lists:append(AgeList,[Tid]),lists:append(ROList,[Tid,rpc:call(db@localhost, adb_db, snapshot, [])]), WaitList, AccessList, AbortList);
+	    loop(lists:append(AgeList,[Tid]),lists:append(ROList,[[Tid,rpc:call(db@localhost, adb_db, snapshot, [])]]), WaitList, AccessList, AbortList);
 	{From, {dump}} ->
 		From ! {adb_tm, dump},
 		rpc:call(db@localhost, adb_db, dump, []),
@@ -555,6 +559,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 					loop(AgeList,ROList, WaitList, TmpAccessList, AbortList);
 				[Head|Tail] -> 
 					[Operation|Detail]= Head,
+					io:format("~p~n", [Head]),
 					case Detail of 
 						[{_,ValId,_}] ->
 							[{Tid, ValId,_}] = Detail,
