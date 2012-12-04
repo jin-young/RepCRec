@@ -13,14 +13,14 @@ stop() ->
 rl_acquire(TransId, VarId) ->
     case getter(VarId) of
         {true, _} -> rpc({rl_acquire, TransId, VarId});
-        {false} -> {false, empty}
+        {false} -> {false}
     end.
      
     
 wl_acquire(TransId, VarId) ->
     case getter(VarId) of
         {true, _} -> rpc({wl_acquire, TransId, VarId});
-        {false} -> {false, empty}
+        {false} -> {false}
     end.
 
 %%--------------------------------------------------------------------
