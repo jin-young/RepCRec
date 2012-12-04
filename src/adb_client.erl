@@ -28,7 +28,7 @@ send_command([H|TL]) ->
                     nomatch -> 
                         case re:run(Cmd, "R(.+)") of 
                             {match, _} ->
-                                [A|B]=string:tokens(Cmd,"R( , )"),
+                                [A,B]=string:tokens(Cmd,"R( , )"),
                                 r(A,B),
                                 send_command(TL);
                             nomatch ->
@@ -88,26 +88,26 @@ beginRO(Tid) ->
 
 r(Tid, ValId) ->
     {A,B}=rpc:call(tm@localhost, adb_tm, r, [Tid, ValId]),
-    io:format("~s~s~n",[A,B]).
+    io:format("~p~p~n",[A,B]).
     
 w(Tid, ValId, Value) ->
     {A,B,C}=rpc:call(tm@localhost, adb_tm, w, [Tid, ValId, Value]),
-    io:format("~s~s~s~n",[A,B,C]).
+    io:format("~p~p~p~n",[A,B,C]).
 
 dump() ->
-    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, dump, [])]).
+    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [])]).
 
 dump(Tid) ->%this is for dump(1) or dump(x1)
-    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, dump, [Tid])]).
+    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [Tid])]).
    
 endT(Tid) ->
-    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, endT, [Tid])]).    
+    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, endT, [Tid])]).    
 
 fail(SiteId) ->
-    io:format("~s~n",[rpc:call(tm@localhost, adb_tm, fail, [SiteId])]).
+    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, fail, [SiteId])]).
     
 recover(SiteId) ->
-      io:format("~s~n",[rpc:call(tm@localhost, adb_tm, recover, [SiteId])]).
+      io:format("~p~n",[rpc:call(tm@localhost, adb_tm, recover, [SiteId])]).
 
 trydump([]) ->dump();
 trydump([H]) ->dump(H).
