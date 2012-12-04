@@ -550,6 +550,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 							{true,_} ->
 								io:format("~p performed read on ~p~n", [Tid, ValId]),
 								% readTrack!!!
+								readTrack(Tid, ValId, AccessList),
 								loop(AgeList,ROList, WaitList,lists:append([[r, {Tid, ValId}]],AccessList), AbortList)	
 								% perform operation
 						end
