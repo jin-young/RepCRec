@@ -81,7 +81,8 @@ checkReadWaitListOlder(Tid, ValId, WaitList, AgeList) ->
 	% If some transactions in WaitList can performed, do it!
 checkWaitList(AgeList,ROList,AccessList, WaitList, AbortList, NewWaitList) ->
 		%io:format("~p~n", [WaitList]),
-		case WaitList of
+		
+		case doReadOnly(ROList, WaitList, NewWaitList) of
 			[] ->
 				lists:append([AccessList],[NewWaitList]);
 			[Head|Tail] ->
@@ -95,7 +96,7 @@ checkWaitList(AgeList,ROList,AccessList, WaitList, AbortList, NewWaitList) ->
 								    io:format("cannot obtain lock on ~s ~n", [ValId]),
 									checkWaitList(AgeList, ROList,AccessList, Tail,AbortList, lists:append(NewWaitList, [Head]));
 								{false} ->
-										io:format("put ~s into WaitList~n", [Tid]),
+										%io:format("put ~s into WaitList~n", [Tid]),
 										checkWaitList(AgeList, ROList,AccessList, Tail,AbortList, lists:append(NewWaitList, [Head]));
 										%abort(Tid,AgeList, ROList, lists:append(WaitList,[[w, {Tid, ValId, Value}]]), AccessList, AbortList);
 										%loop(AgeList, ROList, lists:append(WaitList,[[w, {Tid, ValId, Value}]]), AccessList, AbortList);
@@ -108,7 +109,11 @@ checkWaitList(AgeList,ROList,AccessList, WaitList, AbortList, NewWaitList) ->
 						%io:format("~p~n", [Head]),
 						[r,{Tid, ValId}] = Head,
 						%io:format("~p : ~p~n", [Tid, ValId]),
-						doReadOnly(ROList, WaitList, NewWaitList),
+						%doReadOnly(ROList, WaitList, NewWaitList),
+						%io:format("~p~n", [NewWaitList]),
+						%io:format("~p~n", [doReadOnly(ROList, WaitList, NewWaitList)]),
+						%io:format("~p~n", [NewWaitList]),
+						
 						Ret = rpc:call(db@localhost, adb_db, rl_acquire,[Tid,ValId]),
 						%io:format("88888~p ~n", [Ret]),
 						case Ret of  
@@ -118,7 +123,7 @@ checkWaitList(AgeList,ROList,AccessList, WaitList, AbortList, NewWaitList) ->
 							{false} ->
 									% site fail
 									%abort(Tid,AgeList, ROList, lists:append(WaitList,[[r, {Tid, ValId}]]), AccessList, AbortList);
-									io:format("put ~s into WaitList~n", [Tid]),
+									%io:format("put ~s into WaitList~n", [Tid]),
 									checkWaitList(AgeList, ROList,AccessList, Tail, AbortList, lists:append(NewWaitList, [Head]));
 							{true, _} ->
 									io:format("~p performed read on ~p~n", [Tid, ValId]),
@@ -149,7 +154,7 @@ checkWaitList(AgeList,ROList,AccessList, WaitList, AbortList, NewWaitList) ->
 						end		
 					end
 		end.
-checkWriteWaitListOlder(Tid, ValId, WaitList, AgeList) ->
+checkWriteWaitListOlder(Tid, ValId, WaitList, AgeList, ROList) ->
 	case WaitList of
 			[] ->
 				true;
@@ -158,22 +163,32 @@ checkWriteWaitListOlder(Tid, ValId, WaitList, AgeList) ->
 				case Detail of 
 					[{_,ValId,_}] ->
 						[{THold, ValId,_}] = Detail,
-						case  whoOlder(Tid, THold, AgeList) =:= Tid of
-							true ->
-								checkWriteWaitListOlder(Tid, ValId, Tail, AgeList);
+						case isReadOnly(THold, ROList) of
+							true  ->
+								checkWriteWaitListOlder(Tid, ValId, Tail, AgeList, ROList);
 							false ->
-								false	
+								case  whoOlder(Tid, THold, AgeList) =:= Tid of
+									true ->
+										checkWriteWaitListOlder(Tid, ValId, Tail, AgeList, ROList);
+									false ->
+										false	
+								end
 						end;
 					[{_,ValId}] ->
 						[{THold, ValId}] = Detail,
-						case  whoOlder(Tid, THold, AgeList) =:= Tid of
-							true ->
-								checkWriteWaitListOlder(Tid, ValId, Tail, AgeList);
+						case isReadOnly(THold, ROList) of
+							true  ->
+								checkWriteWaitListOlder(Tid, ValId, Tail, AgeList, ROList);
 							false ->
-								false	
+								case  whoOlder(Tid, THold, AgeList) =:= Tid of
+									true ->
+										checkWriteWaitListOlder(Tid, ValId, Tail, AgeList, ROList);
+									false ->
+										false	
+								end
 						end;
 					[_] ->
-						checkWriteWaitListOlder(Tid, ValId, Tail, AgeList)	
+						checkWriteWaitListOlder(Tid, ValId, Tail, AgeList, ROList)	
 				end
 	end.			
 
@@ -248,7 +263,7 @@ doReadOnly(ROList, List, NewList) ->
 								% Perform Read-only + check site not fail
 								case evenNum(ValId) of
 									{true} ->
-										case rpc:call(db@localhost, adb_db, anySiteFail,[]) of 
+										case rpc:call(db@localhost, adb_db, allSiteFail,[]) of 
 											true -> 
 												doReadOnly(ROList, Tail, lists:append(NewList, [Head]));
 											false -> 
@@ -479,7 +494,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 					
 					% compare age to WaitList or holding lock transaction
 					%[{THoldLock, ValId}] = lists:filter(WriteLockExist(ValId), WriteLock),
-						case whoOlder(THoldLock, Tid, AgeList) =:= Tid andalso checkWriteWaitListOlder(Tid, ValId, WaitList, AgeList) of
+						case whoOlder(THoldLock, Tid, AgeList) =:= Tid andalso checkWriteWaitListOlder(Tid, ValId, WaitList, AgeList, ROList) of
 							true ->
 						 	   	% keep in the waitlist
 	 					 	  	io:format("put ~s into WaitList~n", [Tid]),				 
@@ -489,9 +504,15 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 								abort(Tid,AgeList, ROList, WaitList, AccessList, AbortList)
 				 		end;
 					{false} ->
-						io:format("put ~s into WaitList~n", [Tid]),
-						%abort(Tid,AgeList, ROList, lists:append(WaitList,[[w, {Tid, ValId, Value}]]), AccessList, AbortList);
-						loop(AgeList, ROList, lists:append(WaitList,[[w, {Tid, ValId, Value}]]), AccessList, AbortList);
+						case checkWriteWaitListOlder(Tid, ValId, WaitList, AgeList, ROList) of
+							true ->
+						 	   	% keep in the waitlist
+	 					 	  	io:format("put ~s into WaitList~n", [Tid]),				 
+						 		loop(AgeList, ROList, lists:append(WaitList,[[w, {Tid, ValId, Value}]]), AccessList, AbortList);
+							false ->
+								% abort the transaction
+								abort(Tid,AgeList, ROList, WaitList, AccessList, AbortList)
+				 		end;
 					{true,_} ->
 						io:format("~p performed write on ~p~n", [Tid, ValId]),
 						loop(AgeList,ROList, WaitList, lists:append([[w, {Tid, ValId, Value}]], AccessList ), AbortList)	
@@ -519,13 +540,40 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 				%io:format("~p ~p ~p~n",[Tid, ROList,isReadOnly(Tid, ROList)]),
 				case isReadOnly(Tid, ROList) of
 					true ->
-						case readFromSnapshot(Tid, ValId, ROList) of
-							{true,Value} -> 
-							% cal rpc to client to send value
-							io:format("call rpc to client ~p : ~p~n", [ValId, Value]),
-							loop(AgeList, ROList, WaitList, AccessList, AbortList);
-							{false} -> 
-								loop(AgeList,ROList, lists:append(WaitList,[[r, {Tid, ValId}]]),  AccessList, AbortList)
+
+						case evenNum(ValId) of
+							{true} ->
+								case rpc:call(db@localhost, adb_db, allSiteFail,[]) of 
+									true -> 
+										io:format("put ~s into WaitList~n", [Tid]),	
+										loop(AgeList,ROList, lists:append(WaitList,[[r, {Tid, ValId}]]),  AccessList, AbortList);
+									false -> 
+										case readFromSnapshot(Tid, ValId, ROList) of
+											{true,Value} -> 
+												loop(AgeList, ROList, WaitList, AccessList, AbortList);
+												% cal rpc to client to send value
+											{false} -> 
+												io:format("put ~s into WaitList~n", [Tid]),	
+												loop(AgeList,ROList, lists:append(WaitList,[[r, {Tid, ValId}]]),  AccessList, AbortList)
+										end	
+								end;
+							{false, Sid} ->	%odd number
+								case rpc:call(db@localhost, adb_db, status,[list_to_integer(Sid)]) of
+									down -> %still fail
+										io:format("put ~s into WaitList~n", [Tid]),	
+										loop(AgeList,ROList, lists:append(WaitList,[[r, {Tid, ValId}]]),  AccessList, AbortList);
+									up ->
+										case readFromSnapshot(Tid, ValId, ROList) of
+											{true,Value} -> 
+														
+												% cal rpc to client to send value
+												io:format("call rpc to client ~p : ~p~n", [ValId, Value]),
+												loop(AgeList, ROList, WaitList, AccessList, AbortList);
+											{false} -> 
+												io:format("put ~s into WaitList~n", [Tid]),	
+												loop(AgeList,ROList, lists:append(WaitList,[[r, {Tid, ValId}]]),  AccessList, AbortList)
+										end	
+								end
 						end;
 					false ->
 						case rpc:call(db@localhost, adb_db, rl_acquire,[Tid,ValId])  of  
@@ -546,8 +594,17 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 							{false} ->
 								% site fail
 								%abort(Tid,AgeList, ROList, lists:append(WaitList,[[r, {Tid, ValId}]]), AccessList, AbortList);
-								io:format("put ~s into WaitList~n", [Tid]),
-								loop(AgeList, ROList, lists:append(WaitList,[[r, {Tid, ValId}]]), AccessList, AbortList);
+						 		case checkReadWaitListOlder(Tid, ValId, WaitList, AgeList) of
+									true ->
+								 	   	% keep in the waitlist
+									   	% we have to check the conflict in the waitlist as well	
+									   	io:format("put ~s into WaitList~n", [Tid]),
+								 	  	loop(AgeList,ROList, lists:append(WaitList,[[r, {Tid, ValId}]]),  AccessList, AbortList);
+									false ->
+										% abort the transaction
+										abort(Tid,AgeList, ROList, WaitList, AccessList, AbortList)
+								end;
+								
 							{true,_} ->
 								io:format("~p performed read on ~p~n", [Tid, ValId]),
 								% readTrack!!!

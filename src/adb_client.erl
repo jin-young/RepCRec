@@ -22,7 +22,7 @@ send_command([H|TL]) ->
          case re:run(Cmd, "^\/\/.*") of
             {match, _} -> send_command(TL); % skip comment line
             nomatch -> 
-                io:format("~s: ", [Cmd]),
+                io:format("~s: ~n", [Cmd]),
                 case re:run(Cmd, "beginRO(.+)") of
                     {match,_} ->
                         [A]=string:tokens(Cmd,"beginRO()"),
@@ -85,14 +85,14 @@ send_command([H|TL]) ->
                        
 beginT(Tid) ->
     %io:format("~p~n",[rpc:call(tm@localhost, adb_tm, beginT, [Tid])]).
-    io:format("\tTransation ~p has been started.~n",[rpc:call(tm@localhost, adb_tm, beginT, [Tid])]).
-   
+    %io:format("\tTransation ~p has been started.~n",[rpc:call(tm@localhost, adb_tm, beginT, [Tid])]).
+   rpc:call(tm@localhost, adb_tm, beginT, [Tid]).
 beginRO(Tid) ->
-    io:format("\tRead-Only transation ~p has been started.~n",[rpc:call(tm@localhost, adb_tm, beginRO, [Tid])]).
-
+    %io:format("\tRead-Only transation ~p has been started.~n",[rpc:call(tm@localhost, adb_tm, beginRO, [Tid])]).
+	rpc:call(tm@localhost, adb_tm, beginRO, [Tid]).
 r(Tid, ValId) ->
-    {A,B}=rpc:call(tm@localhost, adb_tm, r, [Tid, ValId]),
-    io:format("\tTransation ~p read a value of ~p~n",[A,B]).
+    {A,B}=rpc:call(tm@localhost, adb_tm, r, [Tid, ValId]).
+    %io:format("\tTransation ~p read a value of ~p~n",[A,B]),
     
 w(Tid, ValId, Value) ->
     NewValue = case is_integer(Value) of
@@ -101,14 +101,14 @@ w(Tid, ValId, Value) ->
         false ->
             Value
     end,
-    {A,B,C}=rpc:call(tm@localhost, adb_tm, w, [Tid, ValId, NewValue]),
-    io:format("\tTransaction ~p update variable ~p with new value ~p~n",[A,B,C]).
+    {A,B,C}=rpc:call(tm@localhost, adb_tm, w, [Tid, ValId, NewValue]).
+    %io:format("\tTransaction ~p update variable ~p with new value ~p~n",[A,B,C]).
 
 dump() ->
-    io:format("~n================ BEGIN ALL SITES DUMPING =================~n"),
-    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [])]),
-    io:format("================ END ALL SITES DUMPING =================~n").
-
+    %io:format("~n================ BEGIN ALL SITES DUMPING =================~n"),
+    %io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [])]),
+    %io:format("================ END ALL SITES DUMPING =================~n").
+	rpc:call(tm@localhost, adb_tm, dump, []).
 dump(Id) ->%this is for dump(1) or dump(x1)
     ConvId = case is_integer(Id) of
         true ->
@@ -116,13 +116,14 @@ dump(Id) ->%this is for dump(1) or dump(x1)
         false ->
             Id
     end,
-    io:format("~n================ BEGIN DUMPING FOR ~p =================~n", [ConvId]),
-    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [ConvId])]),
-    io:format("================ END DUMPING FOR ~p =================~n", [ConvId]).    
+    %io:format("~n================ BEGIN DUMPING FOR ~p =================~n", [ConvId]),
+    %io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [ConvId])]),
+    %io:format("================ END DUMPING FOR ~p =================~n", [ConvId]).    
+   rpc:call(tm@localhost, adb_tm, dump, [ConvId]).
    
 endT(Tid) ->
-    io:format("\tTransation ~p has been ended.~n",[rpc:call(tm@localhost, adb_tm, endT, [Tid])]).
-
+    %io:format("\tTransation ~p has been ended.~n",[rpc:call(tm@localhost, adb_tm, endT, [Tid])]).
+	rpc:call(tm@localhost, adb_tm, endT, [Tid]).
 fail(SiteId) ->
     ConvId = case is_integer(SiteId) of
         true ->
@@ -130,7 +131,8 @@ fail(SiteId) ->
         false ->
             SiteId
     end,
-    io:format("\tSite ~p has been failed.~n",[rpc:call(tm@localhost, adb_tm, fail, [ConvId])]).
+	rpc:call(tm@localhost, adb_tm, fail, [ConvId]).
+    %io:format("\tSite ~p has been failed.~n",[rpc:call(tm@localhost, adb_tm, fail, [ConvId])]).
     
 recover(SiteId) ->
     ConvId = case is_integer(SiteId) of
@@ -139,7 +141,8 @@ recover(SiteId) ->
         false ->
             SiteId
     end,
-    io:format("\tSite ~p has been recovered.~n",[rpc:call(tm@localhost, adb_tm, recover, [ConvId])]).
+	rpc:call(tm@localhost, adb_tm, recover, [ConvId]).
+    %io:format("\tSite ~p has been recovered.~n",[rpc:call(tm@localhost, adb_tm, recover, [ConvId])]).
 
 trydump([]) ->dump();
 trydump([H]) ->dump(H).
