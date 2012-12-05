@@ -220,17 +220,19 @@ findUpSite(SiteId, BeginId) ->
     end.
     
 getRecentlyUpdatedSite(CurrentIdx, EndIdx, HeightSite, HeigestVersion) ->
-    case CurrentIdx =< EndIdx of
-		true ->
-		    io:format("CurrIdx ~p~n", [CurrentIdx]),
-		    getId(CurrentIdx) ! {self(), {version}},
-		    {_, V} = rpc(getId(CurrentIdx), {version}),
-            case V < HeigestVersion of
-                true ->
-                    getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, HeightSite, HeigestVersion);
-                false ->
-                    getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, CurrentIdx, V)
-            end;
+     case CurrentIdx =< EndIdx of
+		true -> 
+		        Ret = version(CurrentIdx),
+		        case Ret of
+		            {up, V} -> 
+		                      case V < HeigestVersion of
+		                        true ->
+		                            getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, HeightSite, HeigestVersion);
+		                        false ->
+		                            getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, CurrentIdx, V)
+		                      end;
+		            _ -> getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, HeightSite, HeigestVersion)
+		        end;
 		false -> {HeightSite, HeigestVersion}
     end.
     
@@ -239,9 +241,11 @@ version(SiteIdx) ->
     
 rpc(Sid, Q) ->
 	Caller = self(),
-    Sid ! {Caller, Q},
+	io:format("1SID ~p Caller ~p Q ~p~n",[Sid, Caller, Q]),
+    io:format("HHHHHHH ~p~n", [Sid ! {Caller, Q}]),
     receive
 		{Caller, Reply} ->
+		    io:format("2SID ~p Caller ~p Q ~p~n",[Sid, Caller, Q]),
 			Reply
     end.
         
