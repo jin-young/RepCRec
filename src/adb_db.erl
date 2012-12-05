@@ -223,7 +223,6 @@ getRecentlyUpdatedSite(CurrentIdx, EndIdx, HeightSite, HeigestVersion) ->
     case CurrentIdx =< EndIdx of
 		true ->
 		    io:format("CurrIdx ~p~n", [CurrentIdx]),
-		    io:format("version ~p~n", [rpc(getId(CurrentIdx), {version})]),
 		    getId(CurrentIdx) ! {self(), {version}},
 		    {_, V} = rpc(getId(CurrentIdx), {version}),
             case V < HeigestVersion of
@@ -240,7 +239,6 @@ version(SiteIdx) ->
     
 rpc(Sid, Q) ->
 	Caller = self(),
-	io:format("I got ~p~n", [{Caller, Q}]),
     Sid ! {Caller, Q},
     receive
 		{Caller, Reply} ->
