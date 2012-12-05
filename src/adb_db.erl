@@ -1,7 +1,8 @@
 -module(adb_db).
 
--export([start/0, stop/0, dump/0, dump/1, dumpValue/1, snapshot/0, fail/1, recover/1, rl_acquire/2, wl_acquire/2, 
-         release/1, release/2, status/1, getter/1, setter/2, anySiteFail/0, version/1, getRecentlyUpdatedSite/4]).
+-export([start/0, stop/0, dump/0, dump/1, dumpValue/1, snapshot/0, fail/1, 
+         recover/1, rl_acquire/2, wl_acquire/2,  release/1, release/2, status/1, 
+         getter/1, setter/2, anySiteFail/0, allSiteFail/0, version/1, getRecentlyUpdatedSite/4]).
 
 start() ->
     spawn(fun() -> createTable() end),
@@ -28,6 +29,12 @@ wl_acquire(TransId, VarId) ->
 %%-------------------------------------------------------------------- 
 anySiteFail() ->
     checkAllSiteHealth(1,10).
+    
+%%--------------------------------------------------------------------
+%% Function: allSiteFail() -> true | false
+%%-------------------------------------------------------------------- 
+allSiteFail() ->
+    checkAllSiteFail(1,10).
 
 %%--------------------------------------------------------------------
 %% Function: getter(VarId) -> {true, Value} | {false}
@@ -152,6 +159,16 @@ checkAllSiteHealth(CurrentIdx, EndIdx) ->
 		            down -> true
 		        end;
 		false -> false
+    end.
+    
+checkAllSiteFail(CurrentIdx, EndIdx) ->
+    case CurrentIdx =< EndIdx of
+		true -> 
+		        case status(CurrentIdx) of
+		            up -> false;
+		            down -> checkAllSiteFail(CurrentIdx+1, EndIdx)
+		        end;
+		false -> true
     end.
     
 collectSanpshotValues(Dump, TempTableId) ->
