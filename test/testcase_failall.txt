@@ -1,4 +1,4 @@
-beginT(T1
+beginT(T1)
 beginT(T2)
 fail(1)
 fail(2)
