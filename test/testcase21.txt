@@ -1,0 +1,9 @@
+// If T1 were a read-only transaction then T1 would read
+// the value that was committed when T1 began. But that is not the case here.
+// So T1 reads the value written by T2.
+begin(T1)
+begin(T2)
+W(T2, x1, 20)
+end(T2)
+R(T1, x1)
+end(T1)

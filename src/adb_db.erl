@@ -248,12 +248,9 @@ version(SiteIdx) ->
     
 rpc(Sid, Q) ->
 	Caller = self(),
-	io:format("I'm called ~p ~p ~n", [Sid, Caller]),
     Sid ! {Caller, Q},
     receive
 		{Caller, Reply} ->
-		    io:format("Caller is ~p~n", [Caller]),
-		    io:format("Reply is ~p~n", [Reply]),		    
 			Reply
     end.
         

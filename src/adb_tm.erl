@@ -96,7 +96,7 @@ checkReadWaitListOlder(Tid, ValId, WaitList, AgeList) ->
 	
 	% If some transactions in WaitList can performed, do it!
 checkWaitList(AgeList,ROList,AccessList, WaitList, AbortList, NewWaitList) ->
-		io:format("~p~n", [WaitList]),
+		%io:format("~p~n", [WaitList]),
 		
 		case doReadOnly(ROList, WaitList, NewWaitList) of
 			[] ->
@@ -278,7 +278,7 @@ doReadOnly(ROList, List, NewList) ->
 						case isReadOnly(Ttmp, ROList) of
 							true ->
 								% Perform Read-only + check site not fail
-								io:format("hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"),
+								%io:format("hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh"),
 								case evenNum(ValId) of
 									{true} ->
 										case rpc:call(db@localhost, adb_db, allSiteFail,[]) of 
@@ -299,7 +299,7 @@ doReadOnly(ROList, List, NewList) ->
 												doReadOnly(ROList, Tail, lists:append(NewList, [Head]));
 											up ->
 												%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-												io:format("~p~n", [ROList]),
+												%io:format("~p~n", [ROList]),
 												%io:format("~p~n", [readFromSnapshot(Ttmp, ValId, ROList)] ),
 												case readFromSnapshot(Ttmp, ValId, ROList) of
 													{true,Value} -> 
@@ -308,7 +308,7 @@ doReadOnly(ROList, List, NewList) ->
 														io:format("call rpc to client ~p : ~p~n", [ValId, Value]),
 														doReadOnly(ROList, Tail, NewList);
 													{false} -> 
-														io:format("FALSE do readonly ~p~n",[Head]),
+														%io:format("FALSE do readonly ~p~n",[Head]),
 														doReadOnly(ROList, Tail, lists:append(NewList, [Head]))
 												end	
 										end
