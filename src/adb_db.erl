@@ -1,7 +1,7 @@
 -module(adb_db).
 
 -export([start/0, stop/0, dump/0, dump/1, dumpValue/1, snapshot/0, fail/1, 
-         recover/1, rl_acquire/2, wl_acquire/2,  release/1, release/2, status/1, 
+         recover/1, rl_acquire/2, wl_acquire/2,  release/1, release/2, status/1, getId/1,
          getter/1, setter/2, anySiteFail/0, allSiteFail/0, version/1, getRecentlyUpdatedSite/4]).
 
 start() ->
@@ -174,13 +174,10 @@ checkAllSiteFail(CurrentIdx, EndIdx) ->
 collectSanpshotValues(Dump, TempTableId) ->
     case Dump of
         [SiteDump|TailList] ->
-            case SiteDump of
-                {_, up, Vals} -> 
-                    case Vals of
-                        [H|TL] ->
-                            ets:insert(TempTableId, [H|TL])
-                    end;
-                {_, down} -> []
+             {_, _, Vals} = SiteDump,
+             case Vals of
+                [H|TL] ->
+                    ets:insert(TempTableId, [H|TL])
             end,
             collectSanpshotValues(TailList, TempTableId);
         [] -> TempTableId
@@ -220,18 +217,17 @@ findUpSite(SiteId, BeginId) ->
     
 getRecentlyUpdatedSite(CurrentIdx, EndIdx, HeightSite, HeigestVersion) ->
     case CurrentIdx =< EndIdx of
-		true -> 
-		        Ret = version(CurrentIdx),
-		        case Ret of
-		            {up, V} -> 
-		                      case V < HeigestVersion of
-		                        true ->
-		                            getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, HeightSite, HeigestVersion);
-		                        false ->
-		                            getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, CurrentIdx, V)
-		                      end;
-		            _ -> getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, HeightSite, HeigestVersion)
-		        end;
+		true ->
+		    io:format("CurrIdx ~p~n", [CurrentIdx]),
+		    io:format("version ~p~n", [rpc(getId(CurrentIdx), {version})]),
+		    getId(CurrentIdx) ! {self(), {version}},
+		    {_, V} = rpc(getId(CurrentIdx), {version}),
+            case V < HeigestVersion of
+                true ->
+                    getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, HeightSite, HeigestVersion);
+                false ->
+                    getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, CurrentIdx, V)
+            end;
 		false -> {HeightSite, HeigestVersion}
     end.
     
@@ -240,6 +236,7 @@ version(SiteIdx) ->
     
 rpc(Sid, Q) ->
 	Caller = self(),
+	io:format("I got ~p~n", [{Caller, Q}]),
     Sid ! {Caller, Q},
     receive
 		{Caller, Reply} ->
@@ -300,12 +297,16 @@ releaseAllLocks(TransId, Locks) ->
 loop(SiteIdx, Status, Version) ->
 	receive
 	    {From, {version}} ->
+	        io:format("~p IN VERSION ~p ~p ~n",[SiteIdx, Status, Version]),
 	        case Status of
 	            up ->
+	                io:format("~p UP VERSION ~p ~p ~n",[SiteIdx, Status, Version]),
 	                From ! {From, {up, Version}};
 	            down ->
-	                From ! {From, {down}}
+	                io:format("~p DOWN VERSION ~p ~p ~n",[SiteIdx, Status, Version]),
+	                From ! {From, {down, Version}}
 	        end,
+	        io:format("~p ALMOST END VERSION ~p ~p ~n",[SiteIdx, Status, Version]),
 	        loop(SiteIdx, Status, Version);
 	    {From, {setter, VarId, NewValue}} ->
 	        TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
@@ -357,8 +358,8 @@ loop(SiteIdx, Status, Version) ->
 			        case LatestSiteId =:= SiteIdx of
 			            true -> [];
 			            false -> 
-			                {_,up,Vals} = dump(LatestSiteId),
-			                io:format("Start synchronization ~p with ~p~n", [SiteIdx, LatestSiteId]),
+			                {_,_,Vals} = dump(LatestSiteId),
+			                io:format("Start synchronization ~p with disk ~p~n", [SiteIdx, LatestSiteId]),
 			                TblId = list_to_atom(string:concat("tbl", integer_to_list(SiteIdx))),
 			                RecentValues = lists:filter(
                                 fun(X) -> 
