@@ -73,6 +73,9 @@ whoOlderRecursive(THolder, Tid, AgeList) ->
 			true ->
 				whoOlderRecursive(THolder, Tid, Tail)
 		end.
+reader(Tid,ValId) ->
+	{true, Value} = rpc:call(db@localhost, adb_db, getter,[ValId]),
+	io:format("~p performed read on ~p : ~p~n", [Tid, ValId, Value]).
 
 checkReadWaitListOlder(Tid, ValId, WaitList, AgeList) ->
 	case WaitList of
@@ -83,7 +86,7 @@ checkReadWaitListOlder(Tid, ValId, WaitList, AgeList) ->
 				case Detail of 
 					[{_,ValId,_}] ->
 						[{THold, ValId,_}] = Detail,
-						case  whoOlder(Tid, THold, AgeList) of
+						case  whoOlder([THold], Tid, AgeList) of
 							true ->
 								checkReadWaitListOlder(Tid, ValId, Tail, AgeList);
 							false ->
@@ -96,19 +99,21 @@ checkReadWaitListOlder(Tid, ValId, WaitList, AgeList) ->
 	
 	% If some transactions in WaitList can performed, do it!
 checkWaitList(AgeList,ROList,AccessList, WaitList, AbortList, NewWaitList) ->
-		%io:format("~p~n", [WaitList]),
-		
-		case doReadOnly(ROList, WaitList, NewWaitList) of
+		%io:format("WaitList~p~n", [WaitList]),
+		WaitListPerformedRO = doReadOnly(ROList, WaitList, []),
+		%io:format("after doReadOnly~p~n", [WaitListPerformedRO]),
+		case WaitListPerformedRO of
 			[] ->
 				lists:append([AccessList],[NewWaitList]);
 			[Head|Tail] ->
-				%io:format("999999999999999999999~p~n", [Head]),
+				%io:format("999999999999999999999~p~n", [Tail]),
 				case Head of
 					[w,_] ->
 						%io:format("~p", [Head]),
 						[w,{Tid, ValId , Value }] = Head,
 						case rpc:call(db@localhost, adb_db, wl_acquire,[Tid,ValId])  of  
 								{false, [THoldLock]} -> 
+									%io:format("~p ~n", [Tail]),
 								    io:format("cannot obtain lock on ~s ~n", [ValId]),
 									checkWaitList(AgeList, ROList,AccessList, Tail,AbortList, lists:append(NewWaitList, [Head]));
 								{false} ->
@@ -142,8 +147,9 @@ checkWaitList(AgeList,ROList,AccessList, WaitList, AbortList, NewWaitList) ->
 									%io:format("put ~s into WaitList~n", [Tid]),
 									checkWaitList(AgeList, ROList,AccessList, Tail, AbortList, lists:append(NewWaitList, [Head]));
 							{true, _} ->
-									io:format("~p performed read on ~p~n", [Tid, ValId]),
+									%io:format("~p performed read on ~p~n", [Tid, ValId]),
 									% perform operation
+									reader(Tid, ValId),
 									checkWaitList(AgeList, ROList,lists:append([Head],AccessList), Tail, AbortList,NewWaitList)							
 								
 						end;
@@ -183,7 +189,7 @@ checkWriteWaitListOlder(Tid, ValId, WaitList, AgeList, ROList) ->
 							true  ->
 								checkWriteWaitListOlder(Tid, ValId, Tail, AgeList, ROList);
 							false ->
-								case  whoOlder(Tid, THold, AgeList) of
+								case  whoOlder([THold], Tid, AgeList) of
 									true ->
 										checkWriteWaitListOlder(Tid, ValId, Tail, AgeList, ROList);
 									false ->
@@ -196,7 +202,7 @@ checkWriteWaitListOlder(Tid, ValId, WaitList, AgeList, ROList) ->
 							true  ->
 								checkWriteWaitListOlder(Tid, ValId, Tail, AgeList, ROList);
 							false ->
-								case  whoOlder(Tid, THold, AgeList) of
+								case  whoOlder([THold], Tid, AgeList) of
 									true ->
 										checkWriteWaitListOlder(Tid, ValId, Tail, AgeList, ROList);
 									false ->
@@ -305,7 +311,8 @@ doReadOnly(ROList, List, NewList) ->
 													{true,Value} -> 
 														
 														% cal rpc to client to send value
-														io:format("call rpc to client ~p : ~p~n", [ValId, Value]),
+														io:format("~p performed read on ~p : ~p~n", [Ttmp, ValId, Value]),
+														%io:format("call rpc to client ~p : ~p~n", [ValId, Value]),
 														doReadOnly(ROList, Tail, NewList);
 													{false} -> 
 														%io:format("FALSE do readonly ~p~n",[Head]),
@@ -402,7 +409,8 @@ readTrack(Tid, ValId, AccessList) ->
 			case rpc:call(db@localhost, adb_db, getter,[ValId]) of 
 				{true,Value} -> 
 					% cal rpc to client to send value
-					io:format("call rpc to client ~p : ~p~n", [ValId, Value]);
+					%io:format("call rpc to client ~p : ~p~n", [ValId, Value]);
+					io:format("~p performed read on ~p : ~p~n", [Tid, ValId, Value]);
 				{false} -> 
 					% put it in waitlist
 					io:format("put into ~p : ~n", [ValId])
@@ -416,7 +424,8 @@ readTrack(Tid, ValId, AccessList) ->
 					case Tid =:= Ttmp andalso ValId =:= ValIdtmp of
 						true ->
 							% cal rpc to client to send value
-							io:format("call rpc to client ~p : ~p~n", [ValId, Value]);
+							io:format("~p performed read on ~p : ~p~n", [Tid, ValId, list_to_integer(Value)]);
+							%io:format("call rpc to client ~p : ~p~n", [ValId, Value]);
 						false ->
 							readTrack(Tid, ValId, Tail)
 					end;	
@@ -518,7 +527,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 					%[{THoldLock, ValId}] = lists:filter(WriteLockExist(ValId), WriteLock),
 					% THoldLock ["T1", "T2"] , "T1",  ["T1", "T2"]
 						%io:format("~p ~p ~p ~n", [THoldLock, Tid, AgeList]),
-						%io:format("~p~n", [whoOlder(THoldLock, Tid, AgeList)]),
+						%io:format("~p~n", [THoldLock]),
 						case whoOlder(THoldLock, Tid, AgeList) andalso checkWriteWaitListOlder(Tid, ValId, WaitList, AgeList, ROList) of
 							true ->
 						 	   	% keep in the waitlist
@@ -575,6 +584,8 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 									false -> 
 										case readFromSnapshot(Tid, ValId, ROList) of
 											{true,Value} -> 
+												%io:format("call rpc to client ~p : ~p~n", [ValId, Value]),
+												io:format("~p performed read on ~p : ~p~n", [Tid, ValId, Value]),
 												loop(AgeList, ROList, WaitList, AccessList, AbortList);
 												% cal rpc to client to send value
 											{false} -> 
@@ -592,7 +603,8 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 											{true,Value} -> 
 														
 												% cal rpc to client to send value
-												io:format("call rpc to client ~p : ~p~n", [ValId, Value]),
+												%io:format("call rpc to client ~p : ~p~n", [ValId, Value]),
+												io:format("~p performed read on ~p : ~p~n", [Tid, ValId, Value]),
 												loop(AgeList, ROList, WaitList, AccessList, AbortList);
 											{false} -> 
 												io:format("put ~s into WaitList~n", [Tid]),	
@@ -602,10 +614,11 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 						end;
 					false ->
 						case rpc:call(db@localhost, adb_db, rl_acquire,[Tid,ValId])  of  
-							{false, [THoldLock]} ->
+							{false, THoldLock} ->
 							% compare age to WaitList or holding lock transaction
 							%[{THoldLock, ValId}] = lists:filter(WriteLockExist(ValId), WriteLock),
-						
+								%io:format("~p ~p ~p~n",[ THoldLock, Tid, AgeList ]),
+								%io:format("~p~n",[ whoOlder(THoldLock, Tid, AgeList) ]),
 						 		case whoOlder(THoldLock, Tid, AgeList) andalso checkReadWaitListOlder(Tid, ValId, WaitList, AgeList) of
 									true ->
 								 	   	% keep in the waitlist
@@ -631,7 +644,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 								end;
 								
 							{true,_} ->
-								io:format("~p performed read on ~p~n", [Tid, ValId]),
+								%io:format("~p performed read on ~p~n", [Tid, ValId]),
 								% readTrack!!!
 								readTrack(Tid, ValId, AccessList),
 								loop(AgeList,ROList, WaitList,lists:append([[r, {Tid, ValId}]],AccessList), AbortList)	
