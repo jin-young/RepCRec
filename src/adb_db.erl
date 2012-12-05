@@ -1,8 +1,8 @@
 -module(adb_db).
 
--export([start/0, stop/0, dump/0, dump/1, dumpValue/1, snapshot/0, fail/1, 
+-export([start/0, stop/0, dump/0, dump/1, dumpValue/1, snapshot/0, fail/1, rpc/2, getId/1, 
          recover/1, rl_acquire/2, wl_acquire/2,  release/1, release/2, status/1, getId/1,
-         getter/1, setter/2, anySiteFail/0, allSiteFail/0, version/1, getRecentlyUpdatedSite/4]).
+         getter/1, setter/2, anySiteFail/0, allSiteFail/0, version/1, getRecentlyUpdatedSite/6]).
 
 start() ->
     spawn(fun() -> createTable() end),
@@ -219,33 +219,41 @@ findUpSite(SiteId, BeginId) ->
             end
     end.
     
-getRecentlyUpdatedSite(CurrentIdx, EndIdx, HeightSite, HeigestVersion) ->
+getRecentlyUpdatedSite(CurrentIdx, EndIdx, HeightSite, HeigestVersion, CurrentSiteIdx, CurrentSiteVersion) ->
      case CurrentIdx =< EndIdx of
 		true -> 
-		        Ret = version(CurrentIdx),
-		        case Ret of
-		            {up, V} -> 
-		                      case V < HeigestVersion of
-		                        true ->
-		                            getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, HeightSite, HeigestVersion);
-		                        false ->
-		                            getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, CurrentIdx, V)
-		                      end;
-		            _ -> getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, HeightSite, HeigestVersion)
-		        end;
+		    case CurrentIdx =:= CurrentSiteIdx of
+		        true ->
+		            V = CurrentSiteVersion;
+		        false ->
+                   {_, V} = version(CurrentIdx)
+            end, 
+            io:format("RET ~p ~n", [V]),
+            case V < HeigestVersion of
+                true ->
+                    getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, HeightSite, HeigestVersion, CurrentSiteIdx, CurrentSiteVersion);
+                false ->
+                    getRecentlyUpdatedSite(CurrentIdx+1, EndIdx, CurrentIdx, V, CurrentSiteIdx, CurrentSiteVersion)
+            end;
 		false -> {HeightSite, HeigestVersion}
     end.
     
 version(SiteIdx) ->
-    rpc(getId(SiteIdx), {version}).
+    io:format("I'm gonna call ~p to get version~n", [getId(SiteIdx)]),
+    io:format("It is atom : ~p~n", [is_atom(getId(SiteIdx))]),
+
+    Ret = rpc(getId(SiteIdx), {version}),
+    io:format("It is ~p~n", [Ret]),
+    Ret.
     
 rpc(Sid, Q) ->
 	Caller = self(),
-	io:format("1SID ~p Caller ~p Q ~p~n",[Sid, Caller, Q]),
-    io:format("HHHHHHH ~p~n", [Sid ! {Caller, Q}]),
+	io:format("I'm called ~p ~p ~n", [Sid, Caller]),
+    Sid ! {Caller, Q},
     receive
 		{Caller, Reply} ->
-		    io:format("2SID ~p Caller ~p Q ~p~n",[Sid, Caller, Q]),
+		    io:format("Caller is ~p~n", [Caller]),
+		    io:format("Reply is ~p~n", [Reply]),		    
 			Reply
     end.
         
@@ -357,7 +365,8 @@ loop(SiteIdx, Status, Version) ->
 			From ! {From, true},
 			loop(SiteIdx, down, Version);		
 		{From, {recover}} ->
-		    {LatestSiteId, LatestVersion} = getRecentlyUpdatedSite(1, 10, 1, 1),
+		    io:format("Who am I : ~p , ~p~n", [SiteIdx, Version]),
+		    {LatestSiteId, LatestVersion} = getRecentlyUpdatedSite(1, 10, 1, 1, SiteIdx, Version),
 		    case Status of
 		        down ->
 			        io:format("Recover: ~p~n", [SiteIdx]),
