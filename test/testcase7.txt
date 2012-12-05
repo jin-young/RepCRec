@@ -1,6 +1,5 @@
 // Test 3
-// T1 should not abort because its site did not fail.
-// In fact all transactions commit
+// T1 should abort because its site did not fail.
 begin(T1)
 begin(T2)
 R(T1,x3 )

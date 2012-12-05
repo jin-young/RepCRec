@@ -495,7 +495,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 					%io:format("not in abortlist--------~p~n", [Tid]),
 					case isMember(Tid, WaitList) of
 						true->
-							io:format("put in the waitlist~n"),
+							io:format("commit ~p put in the waitlist~n", [Tid]),
 							loop(AgeList, ROList, lists:append(WaitList,[[endT, Tid]]), AccessList, AbortList); 
 						false->
 							io:format("~s commited~n", [Tid]),
@@ -656,7 +656,7 @@ loop(AgeList, ROList, WaitList, AccessList, AbortList) ->
 	
 	{From, {beginRO, Tid}} ->
 		From ! {adb_tm, Tid},
-		io:format("begin ~p~n",[Tid]),
+		io:format("beginRO ~p~n",[Tid]),
 		% create snapshot isolation
 	    loop(lists:append(AgeList,[Tid]),lists:append(ROList,[[Tid,rpc:call(db@localhost, adb_db, snapshot, [])]]), WaitList, AccessList, lists:delete(Tid, AbortList));
 	{From, {dump}} ->
