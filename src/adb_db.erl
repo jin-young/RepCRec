@@ -175,9 +175,13 @@ collectSanpshotValues(Dump, TempTableId) ->
     case Dump of
         [SiteDump|TailList] ->
              {_, _, Vals} = SiteDump,
-             case Vals of
-                [H|TL] ->
-                    ets:insert(TempTableId, [H|TL])
+            case SiteDump of
+                {_, up, Vals} -> 
+                    case Vals of
+                        [H|TL] ->
+                            ets:insert(TempTableId, [H|TL])
+                    end;
+                {_, down, _} -> []
             end,
             collectSanpshotValues(TailList, TempTableId);
         [] -> TempTableId
