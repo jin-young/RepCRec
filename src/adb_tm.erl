@@ -293,6 +293,7 @@ doReadOnly(ROList, List, NewList) ->
 											false -> 
 												case readFromSnapshot(Ttmp, ValId, ROList) of
 													{true,Value} -> 
+													    io:format("~p performed read on ~p : ~p~n", [Ttmp, ValId, Value]),
 														doReadOnly(ROList, Tail, NewList);
 														% cal rpc to client to send value
 													{false} -> 

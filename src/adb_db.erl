@@ -207,15 +207,22 @@ createTable() ->
 	end.
 
 findUpSite(SiteId, BeginId) ->
+    io:format("let check status of site ~p ~n",[SiteId]),
     case status(SiteId) of
         up ->
             SiteId;
         down ->
-            case ((SiteId + 1) rem 10) of
+            if 
+                (SiteId+1) > 10 ->
+                    NextId = (SiteId+1) - 10;
+                true ->
+                    NextId = (SiteId+1)
+            end,
+            case NextId of
                 BeginId ->
                     {false, alldown};
                 _ ->
-                    findUpSite((SiteId + 1) rem 10, BeginId)
+                    findUpSite(NextId, BeginId)
             end
     end.
     
