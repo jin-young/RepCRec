@@ -105,10 +105,11 @@ w(Tid, ValId, Value) ->
     %io:format("\tTransaction ~p update variable ~p with new value ~p~n",[A,B,C]).
 
 dump() ->
-    %io:format("~n================ BEGIN ALL SITES DUMPING =================~n"),
-    %io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [])]),
-    %io:format("================ END ALL SITES DUMPING =================~n").
-	rpc:call(tm@localhost, adb_tm, dump, []).
+    io:format("~n================ BEGIN ALL SITES DUMPING =================~n"),
+    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [])]),
+    io:format("================ END ALL SITES DUMPING =================~n").
+	%rpc:call(tm@localhost, adb_tm, dump, []).
+	
 dump(Id) ->%this is for dump(1) or dump(x1)
     ConvId = case is_integer(Id) of
         true ->
@@ -116,10 +117,10 @@ dump(Id) ->%this is for dump(1) or dump(x1)
         false ->
             Id
     end,
-    %io:format("~n================ BEGIN DUMPING FOR ~p =================~n", [ConvId]),
-    %io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [ConvId])]),
-    %io:format("================ END DUMPING FOR ~p =================~n", [ConvId]).    
-   rpc:call(tm@localhost, adb_tm, dump, [ConvId]).
+    io:format("~n================ BEGIN DUMPING FOR ~p =================~n", [ConvId]),
+    io:format("~p~n",[rpc:call(tm@localhost, adb_tm, dump, [ConvId])]),
+    io:format("================ END DUMPING FOR ~p =================~n", [ConvId]).    
+    %rpc:call(tm@localhost, adb_tm, dump, [ConvId]).
    
 endT(Tid) ->
     %io:format("\tTransation ~p has been ended.~n",[rpc:call(tm@localhost, adb_tm, endT, [Tid])]).
